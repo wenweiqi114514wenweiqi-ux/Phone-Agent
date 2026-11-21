@@ -91,4 +91,11 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 ## License
 
-未指定。若要开源分发，建议补一个 LICENSE（MIT / Apache-2.0 均可）。
+[MIT](LICENSE) © 2026 PhoneAgent contributors
+
+## 发布
+
+```bash
+# 建仓库 + 推代码 + 建 Release + 上传 APK（需要 repo 权限的 token）
+GITHUB_TOKEN=ghp_xxx ./scripts/publish_github.sh
+```
