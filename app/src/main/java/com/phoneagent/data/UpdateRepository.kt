@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.phoneagent.util.AppLog
 import kotlinx.coroutines.CancellationException
@@ -52,10 +55,13 @@ data class UpdateUiState(
     val progress: Float? = null,
     val downloadedPath: String? = null,
     val downloadedTag: String = "",
+    val downloadedCode: Int = 0,
     val stable: RemoteRelease? = null,
     val beta: RemoteRelease? = null,
     val lastCheckAt: Long = 0L,
     val lastError: String? = null,
+    /** 本次结果是 GitHub 请求失败后回退到上次缓存。 */
+    val fromCache: Boolean = false,
     val hint: String? = null,
 )
 
@@ -63,11 +69,12 @@ data class UpdateUiState(
  * 更新检测：只读 GitHub Releases，不经过任何第三方服务。
  *
  * 通道规则：
- * - 设置里「加入 beta 更新」关闭时只看正式版（release.prerelease = false），
+ * - 「加入 beta 更新」关闭时只看正式版（release.prerelease = false），
  * - 打开后才把 beta（预发布）也纳入比较，按 versionCode 取更新的那个。
  *
- * 弹窗是否出现由这里统一决定：同一版本被「暂不更新」过就不再打扰，
- * 只有出现更新的版本才会重新提示。
+ * 每次冷启动都会检查一次，但带 ETag 条件请求：内容没有变化时 GitHub 返回 304，
+ * 不消耗未认证配额；接口 403 限流或断网时回退到上次成功结果的缓存，
+ * 避免"已经是最新版却报 403"。
  */
 class UpdateRepository(
     context: Context,
@@ -82,25 +89,34 @@ class UpdateRepository(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    /** 每次都从系统读，避免安装完成但进程未重启时拿到旧值。 */
     @Suppress("DEPRECATION")
-    val currentVersionCode: Int = runCatching {
+    fun installedCode(): Int = runCatching {
         val info = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
         if (Build.VERSION.SDK_INT >= 28) info.longVersionCode.toInt() else info.versionCode
     }.getOrDefault(0)
 
-    val currentVersionName: String = runCatching {
+    @Suppress("DEPRECATION")
+    fun installedName(): String = runCatching {
         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "?"
     }.getOrDefault("?")
 
     val currentVersionLabel: String
-        get() = "v$currentVersionName · vc$currentVersionCode"
+        get() = "v${installedName()} · vc${installedCode()}"
+
+    private val cachedReleases: List<RemoteRelease> by lazy { loadCachedReleases() }
 
     private val _state = MutableStateFlow(
-        UpdateUiState(lastCheckAt = settings.lastUpdateCheckAt)
+        UpdateUiState(
+            stable = cachedReleases.filter { !it.prerelease }.maxByOrNull { rankOf(it) },
+            beta = cachedReleases.filter { it.prerelease }.maxByOrNull { rankOf(it) },
+            lastCheckAt = settings.lastUpdateCheckAt,
+            fromCache = cachedReleases.isNotEmpty(),
+        )
     )
     val state = _state.asStateFlow()
 
-    /** 待用户处理的"发现新版本"弹窗；null 表示不弹。 */
+    /** 待处理的"发现新版本"弹窗；null 表示不弹。 */
     private val _prompt = MutableStateFlow<RemoteRelease?>(null)
     val prompt = _prompt.asStateFlow()
 
@@ -113,19 +129,16 @@ class UpdateRepository(
         } else {
             s
         }
-        return best?.takeIf { it.isNewerThanCurrent() }
+        return best?.takeIf { it.isNewerThanInstalled() }
     }
 
-    /** 启动时静默检查：24 小时内不重复请求。 */
+    /** 每次 App 启动执行一次：有更新的版本就弹窗。 */
     suspend fun maybeAutoCheck() {
         if (!settings.autoCheckUpdate) return
-        val now = System.currentTimeMillis()
-        val last = settings.lastUpdateCheckAt
-        if (last > 0 && now - last < AUTO_CHECK_INTERVAL_MS) return
-        val found = runCatching { check(silent = true) }.getOrNull()
-        if (found != null && found.tag != settings.dismissedUpdateTag) {
-            _prompt.value = found
-        }
+        val found = runCatching { check(silent = true) }.getOrNull() ?: return
+        if (_state.value.fromCache) return
+        if (found.tag == settings.dismissedUpdateTag) return
+        _prompt.value = found
     }
 
     /**
@@ -136,43 +149,25 @@ class UpdateRepository(
         if (_state.value.checking) return candidate()
         _state.update { it.copy(checking = true, lastError = null) }
         try {
-            val body = withContext(Dispatchers.IO) {
-                val request = Request.Builder()
-                    .url(RELEASES_URL)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "PhoneAgent-Updater")
-                    .build()
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        throw IllegalIOException("GitHub 返回 HTTP ${resp.code}")
-                    }
-                    resp.body?.string().orEmpty()
-                }
+            val fetched = fetch()
+            apply(fetched.releases, fromCache = fetched.cached)
+            return candidate().also { found ->
+                if (!silent && found != null && !fetched.cached) _prompt.value = found
             }
-            val releases = parseReleases(body)
-            val stable = releases.filter { !it.prerelease }.maxByOrNull { rankOf(it) }
-            val beta = releases.filter { it.prerelease }.maxByOrNull { rankOf(it) }
-            settings.lastUpdateCheckAt = System.currentTimeMillis()
-            _state.update {
-                it.copy(
-                    checking = false,
-                    stable = stable,
-                    beta = beta,
-                    lastCheckAt = settings.lastUpdateCheckAt,
-                    lastError = null,
-                )
-            }
-            val found = candidate()
-            if (!silent && found != null) _prompt.value = found
-            return found
         } catch (c: CancellationException) {
             _state.update { it.copy(checking = false) }
             throw c
         } catch (t: Throwable) {
-            val msg = t.message ?: t.javaClass.simpleName
-            // 断网/限流属于环境问题，不算软件缺陷
-            AppLog.env("Update", "检查更新失败：$msg", t)
-            _state.update { it.copy(checking = false, lastError = msg) }
+            val cached = loadCachedReleases()
+            if (cached.isNotEmpty()) {
+                // 限流 / 断网：用上次结果继续判断，不把 403 抛给用户
+                AppLog.env("Update", "检查更新失败，改用缓存：${t.message}")
+                apply(cached, fromCache = true)
+                return candidate()
+            }
+            val message = friendlyError(t)
+            AppLog.env("Update", "检查更新失败：$message")
+            _state.update { it.copy(checking = false, lastError = message, fromCache = false) }
             return null
         }
     }
@@ -180,6 +175,14 @@ class UpdateRepository(
     /** 用户在弹窗里点了「更新」：已下载就装，没有就下载。 */
     fun startUpdate(release: RemoteRelease, noBeta: Boolean = false) {
         if (noBeta) settings.betaUpdates = false
+        val installed = installedCode()
+        // 已经装上这个版本（或更高）：不再下载，直接提示最新
+        if (release.versionCode in 1..installed) {
+            _prompt.value = null
+            _state.update { it.copy(progress = null, hint = null) }
+            toast("当前已是最新版本")
+            return
+        }
         settings.dismissedUpdateTag = release.tag
         val downloaded = _state.value
         if (downloaded.downloadedPath != null && downloaded.downloadedTag == release.tag) {
@@ -206,6 +209,10 @@ class UpdateRepository(
 
     /** 设置页手动检查后，把结果弹出来。 */
     fun showPrompt(release: RemoteRelease) {
+        if (release.versionCode in 1..installedCode()) {
+            toast("当前已是最新版本")
+            return
+        }
         settings.dismissedUpdateTag = ""
         _prompt.value = release
     }
@@ -221,12 +228,19 @@ class UpdateRepository(
             .replace(Regex("[^A-Za-z0-9._-]"), "_")
         val target = File(dir, name)
         val part = File(dir, "$name.part")
-        _state.update { it.copy(progress = 0f, downloadedPath = null, downloadedTag = "", hint = null) }
+        _state.update { it.copy(progress = 0f, downloadedPath = null, downloadedTag = "", downloadedCode = 0, hint = null) }
         try {
             withContext(Dispatchers.IO) {
                 val request = Request.Builder().url(url).header("User-Agent", "PhoneAgent-Updater").build()
                 client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) throw IllegalIOException("下载失败 HTTP ${resp.code}")
+                    if (resp.code == 403 || resp.code == 404) {
+                        if (release.versionCode in 1..installedCode()) {
+                            _prompt.value = null
+                            throw AlreadyLatest()
+                        }
+                        throw UpdateException("下载失败 HTTP ${resp.code}（GitHub 限流或附件不可用，请稍后再试）")
+                    }
+                    if (!resp.isSuccessful) throw UpdateException("下载失败 HTTP ${resp.code}")
                     val total = resp.body?.contentLength() ?: -1L
                     resp.body?.byteStream()?.use { input ->
                         part.outputStream().use { out ->
@@ -249,9 +263,9 @@ class UpdateRepository(
                         }
                     }
                 }
-                if (part.length() <= 0) throw IllegalIOException("下载到的文件是空的")
+                if (part.length() <= 0) throw UpdateException("下载到的文件是空的")
                 if (target.exists()) target.delete()
-                if (!part.renameTo(target)) throw IllegalIOException("无法保存安装包")
+                if (!part.renameTo(target)) throw UpdateException("无法保存安装包")
             }
             AppLog.info("Update", "已下载 ${release.versionLabel}：${target.length()} B")
             _state.update {
@@ -259,6 +273,7 @@ class UpdateRepository(
                     progress = null,
                     downloadedPath = target.absolutePath,
                     downloadedTag = release.tag,
+                    downloadedCode = release.versionCode,
                     hint = null,
                 )
             }
@@ -266,23 +281,35 @@ class UpdateRepository(
         } catch (c: CancellationException) {
             _state.update { it.copy(progress = null) }
             throw c
+        } catch (a: AlreadyLatest) {
+            _state.update { it.copy(progress = null, hint = null) }
+            toast("当前已是最新版本")
         } catch (t: Throwable) {
             val msg = t.message ?: t.javaClass.simpleName
-            AppLog.env("Update", "下载失败：$msg", t)
-            _state.update { it.copy(progress = null, lastError = msg, hint = "下载失败：$msg") }
+            AppLog.env("Update", "下载失败：$msg")
+            _state.update { it.copy(progress = null, lastError = msg, hint = msg) }
         }
     }
 
     /** 调起系统安装器；没给「安装未知应用」权限就先跳授权页。 */
     fun installDownloaded() {
         val path = _state.value.downloadedPath ?: return
+        // 已经在跑这个版本或更高：安装包作废，提示最新
+        val code = _state.value.downloadedCode
+        if (code in 1..installedCode()) {
+            runCatching { File(path).delete() }
+            _prompt.value = null
+            _state.update { it.copy(hint = null, downloadedPath = null, downloadedTag = "", downloadedCode = 0) }
+            toast("当前已是最新版本")
+            return
+        }
         val file = File(path)
         if (!file.exists() || file.length() <= 0) {
             _state.update { it.copy(hint = "安装包不存在，请重新下载") }
             return
         }
         if (!appContext.packageManager.canRequestPackageInstalls()) {
-            _state.update { it.copy(hint = "需要先允许「安装未知应用」，已为你打开设置") }
+            _state.update { it.copy(hint = "需要先允许「安装未知应用」，已打开设置") }
             runCatching {
                 appContext.startActivity(
                     Intent(
@@ -310,6 +337,60 @@ class UpdateRepository(
             AppLog.error("Update", "调起安装器失败：${it.message}", it)
             _state.update { s -> s.copy(hint = "调起安装器失败：${it.message}") }
         }
+    }
+
+    // ---------------- 网络 ----------------
+
+    private data class Fetched(val releases: List<RemoteRelease>, val cached: Boolean)
+
+    private suspend fun fetch(): Fetched = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(RELEASES_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "PhoneAgent-Updater")
+        val etag = settings.updateCacheEtag
+        if (etag.isNotBlank()) builder.header("If-None-Match", etag)
+        client.newCall(builder.build()).execute().use { resp ->
+            when {
+                // 304：内容没变，GitHub 不计配额
+                resp.code == 304 -> {
+                    val raw = settings.updateCacheJson
+                    if (raw.isBlank()) throw UpdateException("缓存为空，请稍后重试")
+                    // 304 代表"内容没变"，数据仍然权威，不能当成离线缓存
+                    Fetched(parseReleases(raw), cached = false)
+                }
+                resp.isSuccessful -> {
+                    val raw = resp.body?.string().orEmpty()
+                    settings.updateCacheJson = raw
+                    settings.updateCacheEtag = resp.header("ETag") ?: ""
+                    Fetched(parseReleases(raw), cached = false)
+                }
+                resp.code == 403 -> throw RateLimited()
+                else -> throw UpdateException("GitHub 返回 HTTP ${resp.code}")
+            }
+        }
+    }
+
+    private fun apply(releases: List<RemoteRelease>, fromCache: Boolean) {
+        val stable = releases.filter { !it.prerelease }.maxByOrNull { rankOf(it) }
+        val beta = releases.filter { it.prerelease }.maxByOrNull { rankOf(it) }
+        settings.lastUpdateCheckAt = System.currentTimeMillis()
+        _state.update {
+            it.copy(
+                checking = false,
+                stable = stable,
+                beta = beta,
+                lastCheckAt = settings.lastUpdateCheckAt,
+                lastError = null,
+                fromCache = fromCache,
+            )
+        }
+    }
+
+    private fun loadCachedReleases(): List<RemoteRelease> {
+        val raw = settings.updateCacheJson
+        if (raw.isBlank()) return emptyList()
+        return runCatching { parseReleases(raw) }.getOrDefault(emptyList())
     }
 
     // ---------------- 解析 ----------------
@@ -356,9 +437,10 @@ class UpdateRepository(
     private fun rankOf(r: RemoteRelease): Long =
         if (r.versionCode > 0) r.versionCode.toLong() else r.publishedAt
 
-    private fun RemoteRelease.isNewerThanCurrent(): Boolean {
-        if (versionCode > 0 && currentVersionCode > 0) return versionCode > currentVersionCode
-        return compareLabels(versionLabel, currentVersionName) > 0
+    private fun RemoteRelease.isNewerThanInstalled(): Boolean {
+        val installed = installedCode()
+        if (versionCode > 0 && installed > 0) return versionCode > installed
+        return compareLabels(versionLabel, installedName()) > 0
     }
 
     private fun parseVersionCode(text: String): Int =
@@ -380,7 +462,6 @@ class UpdateRepository(
             val y = nb.getOrElse(i) { 0 }
             if (x != y) return x - y
         }
-        // 数字相同：带 beta/rc 的预发布版算更旧
         val suffixA = a.any { it.isLetter() }
         val suffixB = b.any { it.isLetter() }
         return when {
@@ -393,16 +474,27 @@ class UpdateRepository(
     private fun numbersOf(s: String): List<Int> =
         Regex("\\d+").findAll(s).mapNotNull { it.value.toIntOrNull() }.toList()
 
-    private class IllegalIOException(message: String) : Exception(message)
+    private fun friendlyError(t: Throwable): String = when (t) {
+        is RateLimited -> "GitHub 接口限流（未认证每小时 60 次），请稍后再试"
+        is UpdateException -> t.message ?: "检查更新失败"
+        else -> t.message ?: "网络不可用，请检查连接后重试"
+    }
+
+    private fun toast(msg: String) = runCatching {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(appContext, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private class UpdateException(message: String) : Exception(message)
+    private class RateLimited : Exception("rate limited")
+    private class AlreadyLatest : Exception("already latest")
 
     companion object {
         private const val OWNER = "wenweiqi114514wenweiqi-ux"
         private const val REPO = "Phone-Agent"
         private const val API = "https://api.github.com/repos/$OWNER/$REPO"
-        private const val RELEASES_URL = "$API/releases?per_page=20"
-
-        private const val HOUR = 60L * 60L * 1000L
-        private const val AUTO_CHECK_INTERVAL_MS = 24 * HOUR
+        private const val RELEASES_URL = "$API/releases?per_page=5"
 
         /** 仓库主页，设置页里放个入口。 */
         const val REPO_URL = "https://github.com/$OWNER/$REPO"

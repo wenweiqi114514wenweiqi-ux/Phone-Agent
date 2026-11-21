@@ -4,7 +4,7 @@ PhoneAgent 是一个完全运行在 Android 手机本地的 AI 助手。用户�
 
 不需要服务器、电脑或常驻 ADB。安装 APK、授权 Shizuku 或 Root、填写模型 API Key 即可使用。
 
-> 当前版本：**1.0.15 Beta**（versionCode 75）
+> 当前版本：**1.0.15**（versionCode 76）
 > 本仓库与其它同名项目无关，代码与实现均为独立完成。
 
 ---
@@ -119,7 +119,7 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 ## 版本
 
-**1.0.15 Beta** 的主要变化：
+**1.0.15** 的主要变化：
 
 - 新增原生 Office 工具：`doc_write`、`sheet_write`、`ppt_write`、`sheet_read`
 - 新增压缩工具：`file_zip`、`file_unzip`、`file_zip_list`
@@ -128,6 +128,7 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 - 修复跨对话记忆串扰、xlsx 结构错误、zip 多套一层目录、docx 文本转义
 - 优化 AI 输出与工具使用：步数上限提高、任务清单、收尾策略、提交前体检、自动补卡
 - 新增应用内更新检测与 beta 通道
+- 应用每次启动自动检查更新；已是最新版本时直接提示，不再重复下载
 
 ## 已知限制
 

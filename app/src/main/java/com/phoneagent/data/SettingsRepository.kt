@@ -126,6 +126,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_CHECK_AT, value).apply()
 
+    /** 上次成功拿到的 releases 原始 JSON，断网或限流时用它判断"已是最新"。 */
+    var updateCacheJson: String
+        get() = prefs.getString(KEY_UPDATE_CACHE, "")!!
+        set(value) = prefs.edit().putString(KEY_UPDATE_CACHE, value).apply()
+
+    /** releases 接口的 ETag，用于条件请求：内容没变返回 304，不消耗配额。 */
+    var updateCacheEtag: String
+        get() = prefs.getString(KEY_UPDATE_ETAG, "")!!
+        set(value) = prefs.edit().putString(KEY_UPDATE_ETAG, value).apply()
+
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_KEY = "api_key"
@@ -150,6 +160,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_AUTO_UPDATE = "auto_check_update"
         private const val KEY_DISMISSED_TAG = "dismissed_update_tag"
         private const val KEY_LAST_CHECK_AT = "last_update_check_at"
+        private const val KEY_UPDATE_CACHE = "update_cache_json"
+        private const val KEY_UPDATE_ETAG = "update_cache_etag"
 
         /** 可选上下文长度（token）。 */
         val CONTEXT_OPTIONS: List<Int> = listOf(

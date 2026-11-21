@@ -63,7 +63,7 @@ fun UpdateSettingsPage(container: AppContainer) {
             HorizontalDivider()
             InfoRow(
                 "版本类型",
-                if (container.updater.currentVersionName.contains("beta", ignoreCase = true)) "Beta 测试版" else "正式版",
+                if (container.updater.installedName().contains("beta", ignoreCase = true)) "Beta 测试版" else "正式版",
             )
             HorizontalDivider()
             InfoRow("更新来源", "GitHub Releases")
@@ -109,13 +109,14 @@ fun UpdateSettingsPage(container: AppContainer) {
                                 result = null
                                 val found = container.updater.check(silent = true)
                                 val err = container.updater.state.value.lastError
+                                val st = container.updater.state.value
                                 result = when {
                                     found != null -> "发现新版本 v${found.versionLabel}"
                                     err != null -> "检查失败：$err"
-                                    else -> "已是最新版本"
+                                    else -> "当前已是最新版本" + if (st.fromCache) "（使用上次缓存）" else ""
                                 }
                                 // 手动检查也走同一个「检测到新的版本」弹窗，和自动检查保持一致
-                                found?.let { container.updater.showPrompt(it) }
+                                found?.let { if (!st.fromCache) container.updater.showPrompt(it) }
                             }
                         },
                         enabled = !state.checking,
