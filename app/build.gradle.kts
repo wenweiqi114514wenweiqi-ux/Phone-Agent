@@ -16,7 +16,7 @@ android {
         // 目标机型 OPPO Find X9 / Android 17(API 37)：
         // 骨架阶段先对齐 API 36 保证构建稳定，API 37 正式版发布后升 compileSdk/targetSdk。
         targetSdk = 36
-        versionCode = 70
+        versionCode = 71
         versionName = "1.0.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

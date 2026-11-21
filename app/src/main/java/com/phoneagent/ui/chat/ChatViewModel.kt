@@ -395,6 +395,21 @@ class ChatViewModel(
                     m.role == "assistant" && m.command == null && m.status == null &&
                         m.createdAt >= startedAt && m.content.isNotBlank()
                 }
+                // 没拿到正式回答（报错/被中断）时，已经流出的内容也不能就这么消失
+                val leftover = streamBuf.toString().trim()
+                if (answer == null && leftover.isNotBlank() && !cancelled) {
+                    runCatching {
+                        container.database.messageDao().insert(
+                            MessageEntity(
+                                id = java.util.UUID.randomUUID().toString(),
+                                conversationId = conversationId,
+                                role = "system",
+                                content = leftover.take(800) + "（本段被中断，未成为最终回答）",
+                                createdAt = System.currentTimeMillis(),
+                            )
+                        )
+                    }
+                }
                 streamBuf.setLength(0)
                 if (answer != null) {
                     val estimated = completionTokens <= 0

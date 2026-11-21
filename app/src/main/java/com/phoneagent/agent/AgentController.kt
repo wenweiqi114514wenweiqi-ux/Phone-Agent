@@ -229,13 +229,33 @@ class AgentController(
             )
 
             val thoughts = mutableListOf<AgentThought>()
+            var preambleSaved = false
             onTextReset()
             gateway.chat(messages, tools, config).collect { t ->
                 thoughts += t
                 onThought(t)
                 if (t.type == "text") onTextDelta(t.content)
-                // 这一步要去调工具了：它前面的铺垫文字不作正文，撤掉
-                if (t.type == "tool_call") onTextReset()
+                // 这一步要去调工具了：它前面的铺垫文字不作正文，但也不能凭空消失——
+                // 先落一条「过程」记录（system 角色的浅色行），再清空气泡。
+                if (t.type == "tool_call" && !preambleSaved) {
+                    preambleSaved = true
+                    val soFar = thoughts.filter { it.type == "text" }
+                        .joinToString("") { it.content }.trim()
+                    if (soFar.isNotBlank()) {
+                        runCatching {
+                            messageDao.insert(
+                                assistantMessage(conversationId, soFar.take(800)).copy(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    role = "system",
+                                    command = null,
+                                    status = null,
+                                    createdAt = System.currentTimeMillis(),
+                                )
+                            )
+                        }
+                    }
+                    onTextReset()
+                }
             }
 
             val toolCalls = thoughts.filter { it.type == "tool_call" }
