@@ -40,6 +40,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.key
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
+import androidx.webkit.WebSettingsCompat
+import android.os.Build
+import android.webkit.WebSettings
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -89,6 +96,11 @@ class FilePreviewActivity : ComponentActivity() {
             val appearance by (application as com.phoneagent.PhoneAgentApp)
                 .container.appearance.state.collectAsState()
             PhoneAgentTheme(appearance = appearance) {
+                // 必须铺一层 Surface：Activity 的窗口主题是浅色的，不铺底会把白窗口漏出来
+                androidx.compose.material3.Surface(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.background,
+                ) {
                 PreviewScreen(
                     path = path,
                     name = name,
@@ -99,6 +111,7 @@ class FilePreviewActivity : ComponentActivity() {
                     size = size,
                     onBack = { finish() },
                 )
+                }
             }
         }
     }
@@ -157,6 +170,10 @@ private fun PreviewScreen(
     val kind = remember(name, mime, resolvedPath) { detectKind(name, mime) }
     var showInfo by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // HTML 预览的配色模式：跟随深色主题时默认开启深色渲染，用户可一键切回原色
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    var htmlDark by rememberSaveable { mutableStateOf(darkTheme) }
+    val pageBg = MaterialTheme.colorScheme.background.toArgb()
 
     // 路径在手机存储里但没有「所有文件访问权限」→ 一进来就引导开启，而不是给一个空白文件
     var showPerm by remember(resolvedPath) {
@@ -182,6 +199,14 @@ private fun PreviewScreen(
                 }
             },
             actions = {
+                if (kind == PreviewKind.HTML) {
+                    TextButton(onClick = { htmlDark = !htmlDark }) {
+                        Text(
+                            if (htmlDark) "原色" else "深色",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
                 IconButton(onClick = { showInfo = true }) {
                     Icon(Icons.Filled.Info, contentDescription = "文件信息")
                 }
@@ -198,7 +223,9 @@ private fun PreviewScreen(
             when (kind) {
                 PreviewKind.TEXT -> TextPreview(file)
                 PreviewKind.MARKDOWN -> MarkdownPreview(file)
-                PreviewKind.HTML -> HtmlPreview(file)
+                PreviewKind.HTML -> key(htmlDark) {
+                    HtmlPreview(file = file, dark = htmlDark, bgColor = pageBg)
+                }
                 PreviewKind.IMAGE -> ImagePreview(file)
                 PreviewKind.UNSUPPORTED -> UnsupportedPreview(
                     name = name,
@@ -436,22 +463,37 @@ private fun MarkdownPreview(file: File) {
 
 /** HTML：系统 WebView 渲染本地文件；禁 JS 桥、禁跨文件访问。 */
 @Composable
-private fun HtmlPreview(file: File) {
+private fun HtmlPreview(file: File, dark: Boolean, bgColor: Int) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             android.webkit.WebView(context).apply {
+                // 先铺主题底色，避免 WebView 默认白底在加载中先闪一下
+                setBackgroundColor(bgColor)
                 settings.javaScriptEnabled = true
                 settings.allowFileAccess = true
                 settings.allowContentAccess = false
                 settings.setSupportZoom(true)
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
+                settings.loadsImagesAutomatically = true
+                settings.textZoom = 100
+                applyDarkMode(settings, dark)
                 loadUrl("file://" + file.absolutePath)
             }
         },
-        update = { /* 只加载一次 */ },
+        update = { /* 只加载一次；切换模式由 key 触发重建 */ },
     )
+}
+
+/** 让 WebView 按主题反色：33+ 用算法反色，29–32 用 forceDark，更低版本交给页面自身。 */
+@Suppress("DEPRECATION")
+private fun applyDarkMode(settings: WebSettings, dark: Boolean) {
+    if (Build.VERSION.SDK_INT >= 33) {
+        WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, dark)
+    } else if (Build.VERSION.SDK_INT >= 29) {
+        settings.forceDark = if (dark) WebSettings.FORCE_DARK_ON else WebSettings.FORCE_DARK_OFF
+    }
 }
 
 /** 图片：采样解码后按手势缩放。 */
