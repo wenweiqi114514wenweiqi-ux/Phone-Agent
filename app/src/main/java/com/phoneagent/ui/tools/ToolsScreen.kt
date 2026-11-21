@@ -82,8 +82,15 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.outline,
                     )
                 }
+                val zipNames = tools.count { it.name == "file_zip" || it.name == "file_unzip" || it.name == "file_zip_list" }
                 Text(
-                    "关闭后模型将看不到该工具；点分组标题可展开/收起",
+                    "关闭后模型将看不到该工具 · 共 " + tools.size + " 个 · 压缩工具 " +
+                        if (zipNames > 0) "已就绪（" + zipNames + "/3）" else "缺失",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (zipNames > 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    "点分组标题可展开/收起；列表由代码内置定义直接合并，不依赖数据库",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )

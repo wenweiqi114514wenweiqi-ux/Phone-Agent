@@ -364,7 +364,8 @@ fun AboutSettingsPage(
     val tools by container.toolRegistry.observeAll().collectAsState(initial = emptyList())
     val versionName = remember {
         try {
-            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
+            val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+            (info.versionName ?: "?") + " · vc" + info.longVersionCode
         } catch (_: Exception) {
             "?"
         }
