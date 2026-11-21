@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
@@ -88,6 +89,7 @@ private const val PAGE_ARCHIVE = 10
 private const val PAGE_LOGS = 11
 private const val PAGE_PRIVACY = 12
 private const val PAGE_TERMS = 13
+private const val PAGE_UPDATE = 14
 
 private fun pageTitle(page: Int): String = when (page) {
     PAGE_PERMISSION -> "后台与保活"
@@ -103,6 +105,7 @@ private fun pageTitle(page: Int): String = when (page) {
     PAGE_ABOUT -> "关于"
     PAGE_PRIVACY -> "隐私声明"
     PAGE_TERMS -> "使用条款"
+    PAGE_UPDATE -> "版本更新"
     else -> "设置"
 }
 
@@ -174,10 +177,12 @@ fun SettingsScreen(
                     PAGE_LOGS -> LogsPage()
                     PAGE_PRIVACY -> PrivacySettingsPage()
                     PAGE_TERMS -> TermsSettingsPage()
+                    PAGE_UPDATE -> UpdateSettingsPage(container)
                     else -> AboutSettingsPage(
                         container = container,
                         onOpenPrivacy = { go(PAGE_PRIVACY) },
                         onOpenTerms = { go(PAGE_TERMS) },
+                        onOpenUpdate = { go(PAGE_UPDATE) },
                     )
                 }
             }
@@ -402,6 +407,15 @@ private fun SettingsHome(
             title = "已归档的对话",
             summary = "归档的会话在这里，可取消归档或删除",
             onClick = { onOpen(PAGE_ARCHIVE) },
+        )
+        SectionEntry(
+            icon = Icons.Filled.Refresh,
+            title = "版本更新",
+            summary = buildString {
+                append("当前 v").append(versionName)
+                append(if (settings.betaUpdates) " · 正式版 + beta" else " · 仅正式版")
+            },
+            onClick = { onOpen(PAGE_UPDATE) },
         )
         SectionEntry(
             icon = Icons.Filled.Info,

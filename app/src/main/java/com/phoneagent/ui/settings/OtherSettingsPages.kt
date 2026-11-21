@@ -359,6 +359,7 @@ fun AboutSettingsPage(
     container: AppContainer,
     onOpenPrivacy: () -> Unit = {},
     onOpenTerms: () -> Unit = {},
+    onOpenUpdate: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val tools by container.toolRegistry.observeAll().collectAsState(initial = emptyList())
@@ -375,6 +376,8 @@ fun AboutSettingsPage(
         CardTitle("版本")
         SettingsCard {
             InfoRow("应用版本", "v$versionName")
+            HorizontalDivider()
+            NavRow("检查更新", "GitHub Releases · beta 可选", onOpenUpdate)
             HorizontalDivider()
             InfoRow("安装包", ctx.packageName)
             HorizontalDivider()
@@ -481,7 +484,7 @@ private fun NavRow(title: String, summary: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun InfoRow(key: String, value: String) {
+internal fun InfoRow(key: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

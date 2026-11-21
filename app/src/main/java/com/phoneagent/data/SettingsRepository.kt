@@ -107,6 +107,25 @@ class SettingsRepository(context: Context) {
         get() = prefs.getLong(KEY_LEGAL_AT, 0L)
         set(value) = prefs.edit().putLong(KEY_LEGAL_AT, value).apply()
 
+    /** 更新通道：打开后才把 beta（GitHub 预发布）纳入检查。 */
+    var betaUpdates: Boolean
+        get() = prefs.getBoolean(KEY_BETA_UPDATES, false)
+        set(value) = prefs.edit().putBoolean(KEY_BETA_UPDATES, value).apply()
+
+    /** 启动时自动检查更新（24 小时内不重复请求）。 */
+    var autoCheckUpdate: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_UPDATE, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_UPDATE, value).apply()
+
+    /** 最近一次点了「暂不更新」的版本 tag，同一个版本不再重复弹窗。 */
+    var dismissedUpdateTag: String
+        get() = prefs.getString(KEY_DISMISSED_TAG, "")!!
+        set(value) = prefs.edit().putString(KEY_DISMISSED_TAG, value).apply()
+
+    var lastUpdateCheckAt: Long
+        get() = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_CHECK_AT, value).apply()
+
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_KEY = "api_key"
@@ -127,6 +146,10 @@ class SettingsRepository(context: Context) {
         private const val KEY_AI_PERSONA = "ai_persona"
         private const val KEY_LEGAL_VERSION = "legal_accepted_version"
         private const val KEY_LEGAL_AT = "legal_accepted_at"
+        private const val KEY_BETA_UPDATES = "beta_updates"
+        private const val KEY_AUTO_UPDATE = "auto_check_update"
+        private const val KEY_DISMISSED_TAG = "dismissed_update_tag"
+        private const val KEY_LAST_CHECK_AT = "last_update_check_at"
 
         /** 可选上下文长度（token）。 */
         val CONTEXT_OPTIONS: List<Int> = listOf(

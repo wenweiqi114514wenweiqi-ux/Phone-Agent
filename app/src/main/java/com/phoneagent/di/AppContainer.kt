@@ -6,6 +6,7 @@ import com.phoneagent.data.AppDatabase
 import com.phoneagent.data.AppearanceRepository
 import com.phoneagent.data.ModelRepository
 import com.phoneagent.data.SettingsRepository
+import com.phoneagent.data.UpdateRepository
 import com.phoneagent.data.WorkspaceRepository
 import com.phoneagent.exec.CommandExecutor
 import com.phoneagent.exec.ShizukuExecutor
@@ -30,6 +31,8 @@ class AppContainer(context: Context) {
     val workspaceRepository: WorkspaceRepository = WorkspaceRepository(appContext)
     val appearance: AppearanceRepository = AppearanceRepository(appContext)
     val modelRepository: ModelRepository = ModelRepository(appContext, settings).also { it.migrateLegacyIfNeeded() }
+    /** 更新检测：GitHub Releases（正式版 / beta 两条通道）。 */
+    val updater: UpdateRepository = UpdateRepository(appContext, settings)
 
     val toolRegistry: ToolRegistry = ToolRegistry(database.toolDao())
     val toolParser: ToolParser = ToolParser(toolRegistry)

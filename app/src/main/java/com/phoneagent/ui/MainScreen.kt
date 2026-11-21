@@ -59,6 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import com.phoneagent.ui.chat.ChatScreen
 import com.phoneagent.ui.settings.SettingsScreen
+import com.phoneagent.ui.update.UpdateAvailableDialog
 import com.phoneagent.ui.sessions.SessionsScreen
 import com.phoneagent.ui.tools.ToolsScreen
 import kotlinx.coroutines.CoroutineScope
@@ -92,6 +93,11 @@ fun MainScreen() {
     var settingsPage by rememberSaveable { mutableIntStateOf(0) }
     var conversationId by rememberSaveable {
         mutableStateOf(container.settings.lastConversationId.ifBlank { "default" })
+    }
+
+    // 更新检测：启动时静默查一次（24 小时节流），发现新版本再弹窗
+    LaunchedEffect(Unit) {
+        runCatching { container.updater.maybeAutoCheck() }
     }
 
     // 上次打开的会话若已不在库里（被删或刚建还没落盘），就地补建而不是丢弃
@@ -164,6 +170,9 @@ fun MainScreen() {
             }
         }
     }
+
+    val updateState by container.updater.state.collectAsState()
+    val updatePrompt by container.updater.prompt.collectAsState()
 
     // 有未查看的问题 → 底部浮出小提示；点它直接进「设置 → 运行日志」
     val openIssues = rememberOpenIssues()
@@ -283,6 +292,20 @@ fun MainScreen() {
                     container = container,
                     conversationId = conversationId,
                     onClose = { showFiles = false },
+                )
+            }
+
+            // 发现新版本：标题「检测到新的版本」+ 版本号 + 摘要 + 三个按钮 + 「不再提示 beta」
+            updatePrompt?.let { release ->
+                UpdateAvailableDialog(
+                    release = release,
+                    downloading = updateState.progress != null,
+                    progress = updateState.progress ?: 0f,
+                    downloaded = updateState.downloadedPath != null &&
+                        updateState.downloadedTag == release.tag,
+                    hint = updateState.hint,
+                    onDismiss = { noBeta -> container.updater.dismiss(noBeta) },
+                    onUpdate = { noBeta -> container.updater.startUpdate(release, noBeta) },
                 )
             }
 
