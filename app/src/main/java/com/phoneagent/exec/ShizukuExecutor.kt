@@ -351,14 +351,19 @@ class ShizukuExecutor(
         runCatching {
             java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(destFile))).use { zos ->
                 zos.setLevel(level)
-                fun put(file: java.io.File, name: String) {
+                // 只传一个目录时，把目录「里面的东西」放到压缩包根目录：
+                // docx/xlsx/pptx 要求 [Content_Types].xml 直接在根，多套一层目录名就会变成"损坏文件"。
+                val stripRootName = roots.size == 1 && roots[0].isDirectory
+                fun put(file: java.io.File, relative: String) {
                     if (runCatching { file.canonicalPath }.getOrDefault(file.absolutePath) == destCanonical) return
                     if (file.isDirectory) {
                         file.listFiles()?.sortedBy { it.name }?.forEach { child ->
-                            put(child, name + "/" + child.name)
+                            val rel = if (relative.isEmpty()) child.name else relative + "/" + child.name
+                            put(child, rel)
                         }
                     } else {
-                        val entryName = name.trimStart('/')
+                        if (relative.isEmpty()) return
+                        val entryName = relative.trimStart('/')
                         if (entryName.isBlank()) return
                         zos.putNextEntry(java.util.zip.ZipEntry(entryName))
                         file.inputStream().use { it.copyTo(zos) }
@@ -367,13 +372,34 @@ class ShizukuExecutor(
                         bytes += file.length()
                     }
                 }
-                roots.forEach { root -> put(root, root.name) }
+                roots.forEach { root ->
+                    if (stripRootName) put(root, "") else put(root, root.name)
+                }
             }
         }.getOrElse {
             runCatching { destFile.delete() }
             return@withContext ExecResult(false, "", "打包失败：" + (it.message ?: it.javaClass.simpleName))
         }
         if (count == 0) return@withContext ExecResult(false, "", "源里没有可打包的文件")
+        // 打成 Office 文件时顺便体检：部件不在根目录直接报错，别交出打不开的文件
+        val ext = destFile.name.substringAfterLast('.', "").lowercase()
+        if (ext == "docx" || ext == "xlsx" || ext == "pptx") {
+            val required = when (ext) {
+                "docx" -> listOf("[Content_Types].xml", "word/document.xml")
+                "xlsx" -> listOf("[Content_Types].xml", "xl/workbook.xml")
+                else -> listOf("[Content_Types].xml", "ppt/presentation.xml")
+            }
+            val missing = runCatching {
+                java.util.zip.ZipFile(destFile).use { z -> required.filter { z.getEntry(it) == null } }
+            }.getOrDefault(required)
+            if (missing.isNotEmpty()) {
+                return@withContext ExecResult(
+                    false, "",
+                    "打包层级不对：" + missing.joinToString("、") + " 不在压缩包根目录。" +
+                        "Office 文件要求这些部件直接在根；src 请传构建目录本身（例如 work/build_docx），不要传它的父目录。",
+                )
+            }
+        }
         val sizeMb = String.format("%.2f", destFile.length() / 1024.0 / 1024.0)
         ExecResult(true, "已打包 " + count + " 个文件 → " + destFile.absolutePath + "（" + sizeMb + " MB，压缩级别 " + level + "）")
     }

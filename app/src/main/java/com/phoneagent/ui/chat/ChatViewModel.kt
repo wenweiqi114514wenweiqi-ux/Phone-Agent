@@ -86,6 +86,11 @@ class ChatViewModel(
     private var lastUserInput: String = ""
     private var seededAnimated = false
     private var runJob: Job? = null
+    private var watchdogJob: Job? = null
+    /** 最后一次收到内容/过程事件的时刻，用于判断"卡住"。 */
+    private var lastActivityAt = 0L
+    /** 非用户主动中断的原因（如超时），落库时要标出来。 */
+    private var abortReason: String? = null
     private val streamBuf = StringBuilder()
     private var lastStreamAt = 0L
     private var pendingSend: Pair<String, List<AttachmentMeta>>? = null
@@ -300,6 +305,8 @@ class ChatViewModel(
             ensureConversation()
             streamBuf.setLength(0)
             lastStreamAt = 0L
+            lastActivityAt = System.currentTimeMillis()
+            abortReason = null
             _state.update {
                 it.copy(
                     sending = true,
@@ -309,6 +316,25 @@ class ChatViewModel(
                     usage = TokenUsage(),
                     streamingText = "",
                 )
+            }
+            // 看门狗：连续 75 秒没有任何增量/工具事件就当卡死，主动收尾，
+            // 避免"卡在一半"永远转圈，也让用户能继续下一轮。
+            watchdogJob?.cancel()
+            watchdogJob = launch {
+                while (isActive) {
+                    kotlinx.coroutines.delay(5_000)
+                    if (!_state.value.sending) break
+                    if (_state.value.pendingCommand != null || _state.value.pendingQuestion != null) {
+                        lastActivityAt = System.currentTimeMillis()
+                        continue
+                    }
+                    val idle = System.currentTimeMillis() - lastActivityAt
+                    if (idle >= 75_000) {
+                        abortReason = "生成超时：75 秒没有任何新内容，已自动中断"
+                        runJob?.cancel()
+                        break
+                    }
+                }
             }
             // 标题生成放后台，绝不阻塞回答
             if (isFirstUserMessage) {
@@ -330,6 +356,7 @@ class ChatViewModel(
                     conversationId = conversationId,
                     userText = fullText,
                     onThought = { t ->
+                        lastActivityAt = System.currentTimeMillis()
                         _state.update {
                             var cur = it.copy(thoughts = it.thoughts + t)
                             // 累积 token 用量（usage 事件）
@@ -352,6 +379,7 @@ class ChatViewModel(
                         // 已点停止：忽略连接里残留的增量，不让人看到"停了还在写"
                         if (_state.value.sending) {
                             streamBuf.append(delta)
+                            lastActivityAt = System.currentTimeMillis()
                         }
                         val now = System.currentTimeMillis()
                         if (_state.value.sending && now - lastStreamAt >= 60) {
@@ -395,22 +423,29 @@ class ChatViewModel(
                     m.role == "assistant" && m.command == null && m.status == null &&
                         m.createdAt >= startedAt && m.content.isNotBlank()
                 }
-                // 没拿到正式回答（报错/被中断）时，已经流出的内容也不能就这么消失
+                // 没拿到正式回答（报错/卡死/被中断）时，已经流出的内容也不能就这么消失
+                val userStopped = _state.value.stopping
                 val leftover = streamBuf.toString().trim()
-                if (answer == null && leftover.isNotBlank() && !cancelled) {
+                abortReason?.let { reason ->
+                    _state.update { it.copy(error = reason) }
+                }
+                if (answer == null && leftover.isNotBlank() && !userStopped) {
                     runCatching {
                         container.database.messageDao().insert(
                             MessageEntity(
                                 id = java.util.UUID.randomUUID().toString(),
                                 conversationId = conversationId,
                                 role = "system",
-                                content = leftover.take(800) + "（本段被中断，未成为最终回答）",
+                                content = leftover.take(4000) + "\n\n（本段被中断，未成为最终回答" +
+                                    (abortReason?.let { "：" + it } ?: "") + "）",
                                 createdAt = System.currentTimeMillis(),
                             )
                         )
                     }
                 }
                 streamBuf.setLength(0)
+                watchdogJob?.cancel()
+                watchdogJob = null
                 if (answer != null) {
                     val estimated = completionTokens <= 0
                     val out = if (estimated) (answer.content.length / 2).coerceAtLeast(1) else completionTokens
@@ -450,7 +485,7 @@ class ChatViewModel(
                 pendingSend = null
                 if (next != null) {
                     _state.update { it.copy(queued = false) }
-                    if (!cancelled) send(next.first, next.second)
+                    if (!cancelled || abortReason != null) send(next.first, next.second)
                 }
             }
         }

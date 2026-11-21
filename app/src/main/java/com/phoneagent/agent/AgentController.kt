@@ -1008,7 +1008,8 @@ class AgentController(
 
             ## 打包与文档生成（重要）
             - 打包/解压一律用内建工具：file_zip、file_unzip、file_zip_list。它们是 App 内置能力，不需要 shell 里有 zip 命令，也不要靠 which/type 去"检查系统有没有 zip"——有工具就用。
-            - docx / xlsx / pptx 本质是 ZIP：先把 [Content_Types].xml、_rels/.rels、word/document.xml 等写进目录，再 file_zip(src=目录, dest=xxx.docx, level=0) 打包即可，不要手工拼 ZIP 字节、更不要自己实现 CRC32。
+            - docx / xlsx / pptx 本质是 ZIP：先把 [Content_Types].xml、_rels/.rels、word/document.xml 等写进目录，再 file_zip(src=该构建目录, dest=xxx.docx, level=0) 打包，不要手工拼 ZIP 字节、更不要自己实现 CRC32。
+            - file_zip 只传一个目录时，目录里的文件会被放到压缩包根目录（不会多套一层目录名）。所以 src 要传 build_docx 目录本身，别传它的父目录；否则 Excel/Word 会判定文件损坏。
             - tar/gzip 与 ZIP 不通用；没有 zip 命令不影响生成 Office 文件。
             - 生成 Office 文件前，先用 file_zip_list 看一眼参考文件的结构，照着补齐缺失的部件。
 
