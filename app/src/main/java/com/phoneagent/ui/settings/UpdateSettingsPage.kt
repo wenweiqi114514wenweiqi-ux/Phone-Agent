@@ -114,6 +114,8 @@ fun UpdateSettingsPage(container: AppContainer) {
                                     err != null -> "检查失败：$err"
                                     else -> "已是最新版本"
                                 }
+                                // 手动检查也走同一个「检测到新的版本」弹窗，和自动检查保持一致
+                                found?.let { container.updater.showPrompt(it) }
                             }
                         },
                         enabled = !state.checking,
