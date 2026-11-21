@@ -11,10 +11,12 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -25,6 +27,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,10 +41,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -81,6 +87,8 @@ fun MainScreen() {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     // 左上角「文件」入口：只看当前会话的交付文件
     var showFiles by rememberSaveable { mutableStateOf(false) }
+    // 离开设置页时给设置页发一次归位信号（见 SettingsScreen.resetSignal）
+    var settingsReset by remember { mutableIntStateOf(0) }
     var conversationId by rememberSaveable {
         mutableStateOf(container.settings.lastConversationId.ifBlank { "default" })
     }
@@ -170,7 +178,14 @@ fun MainScreen() {
     Scaffold(
         modifier = Modifier.imePadding(),
         topBar = {
+            // 背景由外层 Box 直接铺色：M3 的 TopAppBar 内部对容器色做 animateColorAsState，
+            // 主题一换它就会带着旧色补一段动画（切深浅色时"顶栏慢半拍"就是这个）。
+            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
             CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                ),
                 title = { Text(tabs[selected].title, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     if (selected == 0) {
@@ -190,6 +205,7 @@ fun MainScreen() {
                     }
                 },
             )
+            }
         },
         bottomBar = {
             if (!keyboardOpen) {
@@ -197,7 +213,14 @@ fun MainScreen() {
                     tabs.forEachIndexed { index, tab ->
                         NavigationBarItem(
                             selected = selected == index,
-                            onClick = { selected = index },
+                            onClick = {
+                                if (index != selected) {
+                                    // 设置页要回到主菜单；文件覆盖层不该跟着换页留下来
+                                    if (selected == tabs.lastIndex) settingsReset++
+                                    showFiles = false
+                                    selected = index
+                                }
+                            },
                             icon = { Icon(tab.icon, contentDescription = tab.title) },
                             label = { Text(tab.title) },
                         )
@@ -243,13 +266,14 @@ fun MainScreen() {
                     else -> SettingsScreen(
                         container = container,
                         active = selected == index,
+                        resetSignal = settingsReset,
                     )
                 }
                 }
             }
 
-            // 「本次对话的文件」覆盖页
-            if (showFiles) {
+            // 「本次对话的文件」覆盖页：只在聊天页有效，切到别的标签立刻收起
+            if (showFiles && selected == 0) {
                 com.phoneagent.ui.artifacts.ArtifactsPage(
                     container = container,
                     conversationId = conversationId,

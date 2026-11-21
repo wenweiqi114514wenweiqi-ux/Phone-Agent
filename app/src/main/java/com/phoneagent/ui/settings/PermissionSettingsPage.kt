@@ -33,12 +33,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.phoneagent.a11y.AgentAccessibilityService
 import com.phoneagent.di.AppContainer
 import com.phoneagent.service.KeepAliveService
 
 /**
- * Phone Use 权限页：无障碍 / 系统设置 / 悬浮窗 / 电池优化 / 通知 / 保活。
+ * Phone Use 权限页：系统设置 / 悬浮窗 / 电池优化 / 通知 / 保活。
  */
 @Composable
 fun PermissionSettingsPage(container: AppContainer) {
@@ -165,17 +164,6 @@ internal fun PermissionRow(
 }
 
 // ===== 状态查询 =====
-
-internal fun isA11yOn(ctx: Context): Boolean {
-    if (AgentAccessibilityService.isEnabled()) return true
-    val enabled = try {
-        Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-    } catch (_: Exception) {
-        null
-    } ?: return false
-    val target = "${ctx.packageName}/${AgentAccessibilityService::class.java.name}"
-    return enabled.split(':').any { it.equals(target, ignoreCase = true) }
-}
 
 internal fun isIgnoringBattery(ctx: Context): Boolean = try {
     val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager

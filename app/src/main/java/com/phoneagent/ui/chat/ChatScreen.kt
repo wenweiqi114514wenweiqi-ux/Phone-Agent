@@ -1800,7 +1800,7 @@ private fun ToolsSheet() {
     Text("工具", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     Text(
         "内置工具覆盖：文件操作、应用管理、屏幕输入、系统信息、网络请求、OCR 识别、" +
-            "界面操控（需无障碍）、系统设置与后台保活。\n\n在「工具」页可查看全部工具并启用/禁用。",
+            "文件与系统设置、后台保活。\n\n在「工具」页可查看全部工具并启用/禁用。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 6.dp),

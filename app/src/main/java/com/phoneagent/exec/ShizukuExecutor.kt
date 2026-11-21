@@ -136,6 +136,10 @@ class ShizukuExecutor(
             "submit_file" -> submitFile(command)
             "image_describe" -> imageDescribe(command)
             "memory_save" -> memorySave(command)
+            "doc_extract_text" -> docExtractText(command)
+            "file_zip" -> zipCreate(command)
+            "file_unzip" -> zipExtract(command)
+            "file_zip_list" -> zipList(command)
             "set_system_setting" -> setSystemSetting(command)
             "set_keepalive" -> setKeepAlive(command)
             else -> ExecResult(ok = false, output = "", error = "API 工具 ${command.tool.name} 尚未实现")
@@ -272,6 +276,17 @@ class ShizukuExecutor(
                 error = "记忆功能已关闭：请到「设置 → 记忆 · 关于你」里打开长期记忆后再写入",
             )
         }
+        // 环境探测结论是易变事实，写进长期记忆后会在别的会话里被当成"已确认"抛出，
+        // 典型症状就是新对话开口就说"我之前确认过设备没有 Python"。这类内容一律拒写。
+        val volatileEnv = VOLATILE_ENV_WORDS.any { raw.contains(it, ignoreCase = true) } &&
+            VOLATILE_VERDICT_WORDS.any { raw.contains(it, ignoreCase = true) }
+        if (volatileEnv) {
+            return ExecResult(
+                ok = false, output = "",
+                error = "这类内容属于环境探测结论，会随版本/组件变化，不要写入长期记忆；" +
+                    "需要时在本轮重新执行工具确认即可",
+            )
+        }
         val weight = command.args["weight"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.coerceIn(1, 5) ?: 1
         return try {
             val clean = memoryRepo.sanitize(raw).take(500)
@@ -280,6 +295,148 @@ class ShizukuExecutor(
         } catch (e: Exception) {
             ExecResult(ok = false, output = "", error = "写入记忆失败：" + e.message)
         }
+    }
+
+    /**
+     * docx 取文本：本地读 word/document.xml，剥标签。设备上没有 unzip 也能用。
+     */
+    private suspend fun docExtractText(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val raw = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (raw.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数")
+        val file = java.io.File(raw)
+        if (!file.exists()) return@withContext ExecResult(false, "", "文件不存在：" + raw)
+        runCatching {
+            java.util.zip.ZipFile(file).use { zip ->
+                val entry = zip.getEntry("word/document.xml")
+                    ?: return@withContext ExecResult(
+                        false, "",
+                        "不是 docx 结构：缺少 word/document.xml（旧版 .doc 需要先另存为 docx）",
+                    )
+                val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                val plain = xml
+                    .replace("</w:p>", "\n")
+                    .replace(Regex("<[^>]+>"), "")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace(Regex("\n{3,}"), "\n\n")
+                    .trim()
+                val text = plain.lines().take(200).joinToString("\n")
+                ExecResult(true, text.ifBlank { "(空文档)" })
+            }
+        }.getOrElse { ExecResult(false, "", "解析失败：" + (it.message ?: it.javaClass.simpleName)) }
+    }
+
+    /**
+     * 打包 zip。src 支持文件/目录/逗号分隔多路径；level 0 = 只存储（最快、最省电），
+     * 生成 docx/xlsx/pptx 时用 0 就够，模型不必再手工拼 ZIP。
+     */
+    private suspend fun zipCreate(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val src = command.args["src"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val dest = command.args["dest"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (src.isBlank()) return@withContext ExecResult(false, "", "缺少 src 参数")
+        if (dest.isBlank()) return@withContext ExecResult(false, "", "缺少 dest 参数")
+        val level = command.args["level"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.coerceIn(0, 9) ?: 6
+        val roots = src.split(',').map { it.trim().trim('"') }.filter { it.isNotBlank() }.map { java.io.File(it) }
+        if (roots.isEmpty()) return@withContext ExecResult(false, "", "src 为空")
+        val missing = roots.filter { !it.exists() }
+        if (missing.isNotEmpty()) {
+            return@withContext ExecResult(false, "", "找不到：" + missing.joinToString(", ") { it.path })
+        }
+        val destFile = java.io.File(dest)
+        destFile.parentFile?.mkdirs()
+        val destCanonical = runCatching { destFile.canonicalPath }.getOrDefault(destFile.absolutePath)
+        var count = 0
+        var bytes = 0L
+        runCatching {
+            java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(destFile))).use { zos ->
+                zos.setLevel(level)
+                fun put(file: java.io.File, name: String) {
+                    if (runCatching { file.canonicalPath }.getOrDefault(file.absolutePath) == destCanonical) return
+                    if (file.isDirectory) {
+                        file.listFiles()?.sortedBy { it.name }?.forEach { child ->
+                            put(child, name + "/" + child.name)
+                        }
+                    } else {
+                        val entryName = name.trimStart('/')
+                        if (entryName.isBlank()) return
+                        zos.putNextEntry(java.util.zip.ZipEntry(entryName))
+                        file.inputStream().use { it.copyTo(zos) }
+                        zos.closeEntry()
+                        count++
+                        bytes += file.length()
+                    }
+                }
+                roots.forEach { root -> put(root, root.name) }
+            }
+        }.getOrElse {
+            runCatching { destFile.delete() }
+            return@withContext ExecResult(false, "", "打包失败：" + (it.message ?: it.javaClass.simpleName))
+        }
+        if (count == 0) return@withContext ExecResult(false, "", "源里没有可打包的文件")
+        val sizeMb = String.format("%.2f", destFile.length() / 1024.0 / 1024.0)
+        ExecResult(true, "已打包 " + count + " 个文件 → " + destFile.absolutePath + "（" + sizeMb + " MB，压缩级别 " + level + "）")
+    }
+
+    /** 解压 zip，带路径穿越防护（拒绝 .. 与绝对路径条目）。 */
+    private suspend fun zipExtract(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val raw = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val dest = command.args["dest"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (raw.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数")
+        if (dest.isBlank()) return@withContext ExecResult(false, "", "缺少 dest 参数")
+        val file = java.io.File(raw)
+        if (!file.exists()) return@withContext ExecResult(false, "", "文件不存在：" + raw)
+        val destDir = java.io.File(dest)
+        destDir.mkdirs()
+        val destPrefix = runCatching { destDir.canonicalPath + java.io.File.separator }
+            .getOrDefault(destDir.absolutePath + "/")
+        var count = 0
+        var badEntry: String? = null
+        runCatching {
+            java.util.zip.ZipFile(file).use { zip ->
+                for (entry in zip.entries()) {
+                    val name = entry.name
+                    if (name.contains("..") || name.startsWith("/") || name.startsWith("\\")) {
+                        badEntry = name
+                        break
+                    }
+                    val out = java.io.File(destDir, name)
+                    val canonical = runCatching { out.canonicalPath }.getOrNull()
+                        ?: (destDir.absolutePath + "/" + name)
+                    if (!canonical.startsWith(destPrefix)) {
+                        badEntry = name
+                        break
+                    }
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                    } else {
+                        out.parentFile?.mkdirs()
+                        zip.getInputStream(entry).use { input ->
+                            out.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        count++
+                    }
+                }
+            }
+        }.getOrElse { return@withContext ExecResult(false, "", "解压失败：" + (it.message ?: it.javaClass.simpleName)) }
+        badEntry?.let { return@withContext ExecResult(false, "", "压缩包里有危险路径，已中止：" + it) }
+        ExecResult(true, "已解压 " + count + " 个文件到 " + destDir.absolutePath)
+    }
+
+    /** 列出 zip 条目，先看清结构再改（改 docx/xlsx 必备）。 */
+    private suspend fun zipList(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val raw = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (raw.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数")
+        val file = java.io.File(raw)
+        if (!file.exists()) return@withContext ExecResult(false, "", "文件不存在：" + raw)
+        runCatching {
+            java.util.zip.ZipFile(file).use { zip ->
+                val lines = zip.entries().asSequence().take(200).map { e ->
+                    (if (e.isDirectory) "DIR  " else "     ") + e.name + "  " + e.size + "B"
+                }.toList()
+                ExecResult(true, "共 " + zip.size() + " 个条目：\n" + lines.joinToString("\n"))
+            }
+        }.getOrElse { ExecResult(false, "", "读取失败：" + (it.message ?: it.javaClass.simpleName)) }
     }
 
     /** 读取当前激活的模型配置（多模态看图需要）。 */
@@ -626,5 +783,18 @@ class ShizukuExecutor(
         } catch (e: Exception) {
             ExecResult(ok = false, output = "", error = "OCR 识别失败: ${e.message}")
         }
+    }
+
+    private companion object {
+        /** 环境相关名词。 */
+        private val VOLATILE_ENV_WORDS = listOf(
+            "python", "pip", "zip", "unzip", "java", "jar", "busybox", "toybox",
+            "shizuku", "root", "adb", "ffmpeg", "node", "npm",
+        )
+
+        /** 易变的判定词。 */
+        private val VOLATILE_VERDICT_WORDS = listOf(
+            "没有", "未安装", "不支持", "不可用", "不存在", "无法安装", "已确认", "检测到",
+        )
     }
 }

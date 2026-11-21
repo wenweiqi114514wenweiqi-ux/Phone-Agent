@@ -6,15 +6,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import com.phoneagent.a11y.AgentAccessibilityService
 
 /**
  * 权限状态查询与跳转：集中处理 Phone Use 相关系统权限。
  */
 object PermissionHelper {
-
-    /** 无障碍服务是否已开启（以服务连接状态为准）。 */
-    fun isAccessibilityEnabled(): Boolean = AgentAccessibilityService.isEnabled()
 
     /** 修改系统设置权限（WRITE_SETTINGS）。 */
     fun isWriteSettingsGranted(context: Context): Boolean = Settings.System.canWrite(context)
@@ -26,11 +22,6 @@ object PermissionHelper {
     fun isIgnoringBatteryOptimizations(context: Context): Boolean {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         return pm.isIgnoringBatteryOptimizations(context.packageName)
-    }
-
-    /** 跳转无障碍设置页。 */
-    fun openAccessibilitySettings(context: Context) {
-        safeStart(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     /** 跳转修改系统设置授权页。 */

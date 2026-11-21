@@ -112,12 +112,14 @@ fun SettingsScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
     active: Boolean = true,
+    resetSignal: Int = 0,
 ) {
     var page by rememberSaveable { mutableIntStateOf(PAGE_HOME) }
 
-    // 切到别的标签再回来时，回到设置主菜单，而不是停在上次那个二级页
-    LaunchedEffect(active) {
-        if (!active) page = PAGE_HOME
+    // 切到别的标签时由底部导航打一次信号，回到主菜单而不是上次那个二级页。
+    // 不能用 LaunchedEffect(active)：切走的那一帧本页正在退出组合，effect 会被直接取消。
+    LaunchedEffect(resetSignal) {
+        if (resetSignal > 0) page = PAGE_HOME
     }
 
     // 系统返回键：子页回到设置首页

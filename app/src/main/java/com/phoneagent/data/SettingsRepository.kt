@@ -93,11 +93,6 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean("keepalive_enabled", false)
         set(value) = prefs.edit().putBoolean("keepalive_enabled", value).apply()
 
-    /** 无障碍是否曾经开启过（用于被系统关掉时提醒用户重开）。 */
-    var a11yEverEnabled: Boolean
-        get() = prefs.getBoolean("a11y_ever_on", false)
-        set(value) = prefs.edit().putBoolean("a11y_ever_on", value).apply()
-
     var aiPersona: String
         get() = prefs.getString(KEY_AI_PERSONA, "")!!
         set(value) = prefs.edit().putString(KEY_AI_PERSONA, value).apply()

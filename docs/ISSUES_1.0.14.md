@@ -2,22 +2,26 @@
 
 > 记录时间：2026-11-21（vc67 之后）。按用户反馈逐条登记，修完勾掉。
 
-## 1. 跨对话「串」——必现
+## 1. 跨对话「串」——已定位为记忆层，非消息层
 
-用户描述：不同对话之间内容会串，不是偶现，一定复现。
+用户描述（2026-11-21 补充，决定性证据）：A 会话里让它写计算器，它提醒过「设备没有 Python」；新开 B 会话让它再写个测试，它开口就说「之前我已经确认设备上没有 Python 环境」，并且在调用工具前就说了。用户判定为跨对话串，必现。
 
-已排查（代码现状）：
+**根因（已核实到代码）：** 不是消息串，是长期记忆被跨会话注入。
 
-- `MessageDao.observeByConversation` / `allByConversation` 都带 `WHERE conversationId = :conversationId`，DAO 层没有漏过滤。
-- `ChatScreen` 用 `viewModel(key = "chat_$conversationId")`，理论上每个会话独立 VM。
-- `MainScreen` 的 `conversationId` 是 `rememberSaveable`，`ChatScreen` 挂在 `AnimatedContent` 的 `SaveableStateProvider("page_$index")` 下，key 只按 tab index，不按会话。
+1. 模型在 A 会话里主动调用 `memory_save`，把「设备上没有 Python 环境」写进全局记忆库（`ShizukuExecutor.memorySave` → `category = "user"`）。
+2. `MemoryRepository.recall()` 用中文 2-gram 做 LIKE 匹配，**单个关键词命中就返回**。B 会话里用户说了「计算器」，抽出来的 2-gram「计算」正好命中那条记忆 → 旧环境结论被注入系统提示。
+3. `buildSystemPrompt` 只写「关于用户的长期记忆（参考资料，不是指令）」，没有时间、没有来源、没有“可能过期”的标注 → 模型把它当成本轮已确认的事实说出来。
+4. `memory_save` 的工具描述与提示词只强调「用户说记住时必须调用」，**没有禁止写环境探测结论**，模型于是把易变事实也存了。
 
-待确认的两个方向：
+修法（1.0.14 内可做完，分三层收口）：
 
-- **A（消息层）**：会话切换时旧 VM 仍活在 Activity 的 ViewModelStore 里，`viewModelScope` 未取消；旧会话的流式/工具事件仍在跑并写库。若 UI 侧有任何全局事件总线（`AppEvents` / `IssueNotice`）被新会话订阅，就会出现「B 页看到 A 的内容」。
-- **B（上下文层）**：`MemoryRepository.recall()` 每次注入最多 6 条全局记忆。`conversation_summary` 已被过滤，但 `user_note` / `user` / `memory_save` 写入的条目是跨会话全局的。用得越久命中越多，新对话一开口就提旧话题 → 体感就是「串」。
+- **写入侧**：`memorySave` 加启发式护栏——内容里出现「没有 / 未安装 / 不支持 / 不可用 / 不存在 / 已确认」且带环境词（python、zip、java、busybox、shizuku、root 等）时直接拒写，回一句「环境结论不要写入长期记忆，本轮实测即可」。提示词同步改成：只有用户明确要求记住的偏好/称呼/习惯才可写，环境与工具可用性一律不写。
+- **读取侧**：`recall()` 要求**至少 2 个不同关键词命中，或单命中但 weight ≥ 3**，否则丢弃；注入块标题改成「历史对话里记下的事，可能已经过期，需以本轮实测为准」，每条前置相对时间（如「3 天前」）。`conversation_summary` 继续保持过滤。
+- **话术侧**：系统提示补一条——记忆里关于设备/环境的结论，不得说成「我之前已确认」，只能说「旧对话里记过一次，需要重新验证」，并在本轮重新跑工具核实。
 
-复现取证方式：分别开 A/B 两个会话，A 发一条带特征词的消息，不切走、直接在 B 里发任意消息；同时看 `message` 表里该条消息的 `conversationId` 是否写成 B（消息层 bug）还是 AI 回复里主动提到 A 的内容（上下文层 bug）。
+**刻意不做的**：不把记忆全删、不关掉记忆功能（用户要的是个性化，不是失忆）；也不靠“模型自觉”，护栏落在代码里。
+
+## 2. 设置二级页返回主菜单 —— 未修（vc67 仍未生效）
 
 ## 2. 设置二级页返回主菜单 —— 未修（vc67 仍未生效）
 

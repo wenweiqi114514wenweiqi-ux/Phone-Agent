@@ -388,10 +388,34 @@ class ToolRegistry(
         // ===== 文档处理 =====
         ToolDefinition(
             name = "doc_extract_text",
-            description = "从 docx/zip 文档中提取纯文本内容（最多200行）",
+            description = "从 docx 文档中提取纯文本内容（最多200行，本地解析，不依赖设备是否有 unzip）",
             parameters = obj("path" to "docx 文件路径"),
-            handler = "shell", commandTemplate = "unzip -p \"{path}\" word/document.xml 2>/dev/null | sed 's/<[^>]*>//g' | head -200",
-            risk = "low", builtin = true,
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
+            name = "file_zip",
+            description = "把文件或目录打包成 zip。src 可以是单个文件、一个目录（递归整包），或用英文逗号分隔的多个路径；生成 docx/xlsx/pptx 这类「先写 XML 再打包」的文件时用它可以省掉手工拼 ZIP",
+            parameters = obj(
+                "src" to "要打包的源，文件/目录/逗号分隔多路径",
+                "dest" to "输出 zip 的完整路径，如 /sdcard/Download/工作区/report.zip",
+                "level" to "压缩级别 0-9，0 表示只存储不压缩（默认 6）",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
+            name = "file_unzip",
+            description = "解压 zip 到指定目录（已做路径穿越防护，会自动建目录）",
+            parameters = obj(
+                "path" to "zip 文件完整路径",
+                "dest" to "解压目标目录，不存在会自动创建",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
+            name = "file_zip_list",
+            description = "列出 zip 内部的条目名与大小（前200条），用来先看清 docx/xlsx/apk 的结构再决定怎么改",
+            parameters = obj("path" to "zip 文件完整路径"),
+            handler = "api", risk = "low", builtin = true,
         ),
         ToolDefinition(
             name = "file_base64",

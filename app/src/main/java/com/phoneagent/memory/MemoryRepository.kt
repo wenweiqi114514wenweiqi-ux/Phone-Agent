@@ -36,6 +36,10 @@ class MemoryRepository(
         if (filtered.isEmpty()) return emptyList()
         return filtered.groupBy { it.id }
             .map { (_, list) -> list.first() to list.size }
+            // 只命中一个关键词的记忆太容易"误伤"：用户这句里出现「计算」，就会把上一次
+            // 对话里"设备没有 Python"这种结论捞出来。因此要求 2 个不同关键词命中，
+            // 或这条记忆本身被标记为高权重（weight >= 3）。
+            .filter { (memory, hitCount) -> hitCount >= 2 || memory.weight >= 3 }
             .sortedWith(
                 compareByDescending<Pair<MemoryEntity, Int>> {
                     it.second * (it.first.weight.coerceAtLeast(1))
@@ -94,6 +98,7 @@ class MemoryRepository(
         if (memories.isEmpty()) {
             ""
         } else {
+            val now = System.currentTimeMillis()
             memories.joinToString("\n") { m ->
                 val src = when (m.category) {
                     "user" -> "[用户要求记住] "
@@ -101,8 +106,19 @@ class MemoryRepository(
                     "conversation_summary" -> "[旧对话摘要·仅供回忆] "
                     else -> ""
                 }
-                "- $src${sanitize(m.content)}"
+                "- $src[" + ageLabel(now - m.updatedAt) + "] " + sanitize(m.content)
             }
+    }
+
+    /** 相对时间：让模型知道这条是多久以前记下的。 */
+    private fun ageLabel(ageMs: Long): String {
+        val minutes = ageMs / 60_000
+        return when {
+            minutes < 60 -> "刚刚"
+            minutes < 60 * 24 -> "${minutes / 60} 小时前"
+            minutes < 60 * 24 * 30 -> "${minutes / (60 * 24)} 天前"
+            else -> "${minutes / (60 * 24 * 30)} 个月前"
+        }
         }
 
     /**
