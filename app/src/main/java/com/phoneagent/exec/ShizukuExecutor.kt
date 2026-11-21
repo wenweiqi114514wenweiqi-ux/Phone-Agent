@@ -90,6 +90,8 @@ class ShizukuExecutor(
         if (!src.exists()) return@withContext ExecResult(false, "", "文件不存在：$rawPath")
         if (src.isDirectory) return@withContext ExecResult(false, "", "只能提交单个文件，不能提交目录：$rawPath")
         if (!src.canRead()) return@withContext ExecResult(false, "", "文件不可读：$rawPath")
+        // 交付前体检：0 字节、构建中间件、结构坏掉的 Office 一律拒收，别让半成品变成提交卡
+        OfficeCheck.issue(src)?.let { return@withContext ExecResult(false, "", it) }
 
         val name = src.name
         val ext = name.substringAfterLast('.', "").lowercase()
@@ -137,6 +139,8 @@ class ShizukuExecutor(
             "image_describe" -> imageDescribe(command)
             "memory_save" -> memorySave(command)
             "doc_extract_text" -> docExtractText(command)
+            "doc_write" -> docWrite(command)
+            "sheet_write" -> sheetWrite(command)
             "file_zip" -> zipCreate(command)
             "file_unzip" -> zipExtract(command)
             "file_zip_list" -> zipList(command)
@@ -464,6 +468,39 @@ class ShizukuExecutor(
             }
         }.getOrElse { ExecResult(false, "", "读取失败：" + (it.message ?: it.javaClass.simpleName)) }
     }
+
+
+    /** doc_write：直接用原生 OOXML 写 docx，模型不用再手工拼 ZIP。 */
+    private suspend fun docWrite(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val path = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val title = command.args["title"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+        val content = command.args["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数（要写出的 .docx 完整路径）")
+        if (!path.lowercase().endsWith(".docx")) {
+            return@withContext ExecResult(false, "", "path 必须以 .docx 结尾：$path")
+        }
+        if (content.isBlank() && title.isBlank()) {
+            return@withContext ExecResult(false, "", "title 和 content 都是空的，没有内容可写")
+        }
+        val (ok, message) = OfficeWriter.writeDocx(java.io.File(path), title, content)
+        if (ok) ExecResult(true, message) else ExecResult(false, "", message)
+    }
+
+    /** sheet_write：把「每行一条、单元格用 | 分隔」的文本写成真正的 xlsx。 */
+    private suspend fun sheetWrite(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val path = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val sheet = command.args["sheet"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val rows = command.args["rows"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val header = command.args["header"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase() != "false"
+        if (path.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数（要写出的 .xlsx 完整路径）")
+        if (!path.lowercase().endsWith(".xlsx")) {
+            return@withContext ExecResult(false, "", "path 必须以 .xlsx 结尾：$path")
+        }
+        if (rows.isBlank()) return@withContext ExecResult(false, "", "rows 是空的：每行一条记录，单元格之间用 | 分隔")
+        val (ok, message) = OfficeWriter.writeXlsx(java.io.File(path), sheet, rows, header)
+        if (ok) ExecResult(true, message) else ExecResult(false, "", message)
+    }
+
 
     /** 读取当前激活的模型配置（多模态看图需要）。 */
     private fun activeModelProfile(): com.phoneagent.data.ModelProfile? {

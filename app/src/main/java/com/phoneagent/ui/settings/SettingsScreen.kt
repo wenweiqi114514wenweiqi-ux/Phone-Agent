@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -121,6 +123,11 @@ fun SettingsScreen(
     // 系统返回键 / 全屏手势：子页回到设置首页
     BackHandler(enabled = page != PAGE_HOME) { go(PAGE_HOME) }
 
+    // 首页的滚动位置必须活在 AnimatedContent 外面。
+    // 之前 rememberScrollState() 写在 SettingsHome 里面，每次从二级页返回，
+    // AnimatedContent 都会新建一份 SettingsHome，滚动量从 0 开始 —— 这就是"一返回就跳回顶部"。
+    val homeScroll = rememberSaveable(saver = ScrollStateSaver) { ScrollState(0) }
+
     // 别处（底部小提示）请求「打开日志」时直接跳到运行日志页
     val openLogReq by com.phoneagent.util.AppEvents.openLog.collectAsState()
     LaunchedEffect(openLogReq) {
@@ -144,7 +151,12 @@ fun SettingsScreen(
         label = "settingsPage",
     ) { current ->
     if (current == PAGE_HOME) {
-        SettingsHome(container = container, modifier = modifier, onOpen = { go(it) })
+        SettingsHome(
+            container = container,
+            modifier = modifier,
+            scroll = homeScroll,
+            onOpen = { go(it) },
+        )
     } else {
         Column(modifier = modifier.fillMaxSize()) {
             DetailHeader(title = pageTitle(current), onBack = { go(PAGE_HOME) })
@@ -178,7 +190,12 @@ fun SettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsHome(container: AppContainer, modifier: Modifier, onOpen: (Int) -> Unit) {
+private fun SettingsHome(
+    container: AppContainer,
+    modifier: Modifier,
+    scroll: ScrollState,
+    onOpen: (Int) -> Unit,
+) {
     val settings = container.settings
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val versionName = remember {
@@ -207,7 +224,7 @@ private fun SettingsHome(container: AppContainer, modifier: Modifier, onOpen: (I
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -608,3 +625,9 @@ private fun StorageAccessRow() {
         onClick = { com.phoneagent.util.StorageAccess.openSettings(ctx) },
     )
 }
+
+/** 让滚动位置能被 rememberSaveable 保存：切标签、进程重建、从二级页返回都不会跳回顶部。 */
+internal val ScrollStateSaver: Saver<ScrollState, Int> = Saver(
+    save = { it.value },
+    restore = { ScrollState(it) },
+)

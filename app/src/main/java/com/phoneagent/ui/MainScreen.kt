@@ -273,7 +273,11 @@ fun MainScreen() {
                 }
             }
 
-            // 「本次对话的文件」覆盖页：只在聊天页有效，切到别的标签立刻收起
+            // 「本次对话的文件」覆盖页：只在聊天页有效，切到别的标签立刻收起；
+            // 系统返回 / 全屏手势也要能把它关掉，而不是直接退出 App
+            androidx.activity.compose.BackHandler(enabled = showFiles && selected == 0) {
+                showFiles = false
+            }
             if (showFiles && selected == 0) {
                 com.phoneagent.ui.artifacts.ArtifactsPage(
                     container = container,

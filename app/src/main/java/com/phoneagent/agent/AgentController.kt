@@ -152,7 +152,14 @@ class AgentController(
         val effectiveContext = minOf(settings.contextLength, profile.maxContext)
 
         // 2. 记忆检索（仅在开关打开时；只取与本次问题相关的最多 6 条）
-        val memories = if (settings.memoryEnabled) memoryRepo.recall(userText, limit = 6) else emptyList()
+        // 只有用户这句话明显在指"以前/上次/我的习惯"时才注入记忆。
+        // 之前是每轮都塞，模型会主动把旧对话里的环境结论（"设备没有 Python"）搬出来当前提，
+        // 表现就是跨对话串味。现在没有指代过去的线索就不注入，它没得可搬。
+        val memories = if (settings.memoryEnabled && mentionsPast(userText)) {
+            memoryRepo.recall(userText, limit = 6)
+        } else {
+            emptyList()
+        }
         val memoryBlock = if (settings.memoryEnabled) memoryRepo.toPromptBlock(memories) else ""
 
         // 3. 会话历史（含刚插入的用户消息）
@@ -519,6 +526,34 @@ class AgentController(
             return null
         }
 
+        // zip 类工具有 src（可能是逗号分隔多个）和 dest 两个路径，都要守在工作区内
+        if (name == "file_zip" || name == "file_unzip") {
+            val srcKey = if (name == "file_zip") "src" else "path"
+            val updates = mutableMapOf<String, String>()
+            val rawSrc = parsed.args[srcKey]?.jsonPrimitive?.contentOrNull
+            if (!rawSrc.isNullOrBlank()) {
+                val parts = rawSrc.split(',').map { it.trim().trim('"') }.filter { it.isNotBlank() }
+                val resolvedParts = parts.map { p -> resolveWithinWorkspace(ws.root, p) }
+                val bad = resolvedParts.indexOfFirst { it == null }
+                if (bad >= 0) {
+                    return "路径超出工作区范围：${parts[bad]}（本会话工作区是 ${ws.root}）"
+                }
+                updates[srcKey] = resolvedParts.joinToString(",") { it!! }
+            }
+            val rawDest = parsed.args["dest"]?.jsonPrimitive?.contentOrNull
+            if (!rawDest.isNullOrBlank()) {
+                updates["dest"] = resolveWithinWorkspace(ws.root, rawDest)
+                    ?: return "路径超出工作区范围：$rawDest（本会话工作区是 ${ws.root}）"
+            }
+            if (updates.isNotEmpty()) {
+                parsed.args = buildJsonObject {
+                    parsed.args.forEach { (k, v) -> put(k, v) }
+                    updates.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                }
+            }
+            return null
+        }
+
         val pathArg = pathArgName(name) ?: return null
         // 没给路径时按工作区根处理：shell 的 CWD 是 "/"，不能让它去列根目录
         val rawPath = parsed.args[pathArg]?.jsonPrimitive?.contentOrNull
@@ -570,6 +605,10 @@ class AgentController(
         return "/" + out.joinToString("/")
     }
 
+    /** 用户这句话是否在指"以前/上次/习惯"——是才注入长期记忆。 */
+    private fun mentionsPast(text: String): Boolean =
+        PAST_CUES.any { text.contains(it) }
+
     private fun pathArgName(name: String): String? = when (name) {
         "file_stat", "file_cat", "file_read", "file_tail", "file_du", "file_wc",
         "file_mkdir", "file_touch", "file_remove", "file_write", "file_append",
@@ -579,6 +618,9 @@ class AgentController(
         "file_download" -> "path"
         "ocr_image" -> "path"
         "submit_file" -> "path"
+        "doc_write", "sheet_write" -> "path"
+        "file_zip" -> "dest"
+        "file_unzip" -> "dest"
         else -> null
     }
 
@@ -625,6 +667,8 @@ class AgentController(
         paths.take(6).forEach { path ->
             val f = java.io.File(path)
             if (!f.exists() || f.isDirectory) return@forEach
+            // 半成品不补卡片：构建目录里的 XML 部件、0 字节文件、坏掉的 Office 全部跳过
+            com.phoneagent.exec.OfficeCheck.issue(f)?.let { return@forEach }
             val ext = f.name.substringAfterLast('.', "").lowercase()
             val mime = android.webkit.MimeTypeMap.getSingleton()
                 .getMimeTypeFromExtension(ext) ?: "application/octet-stream"
@@ -944,12 +988,19 @@ class AgentController(
     }
 
     companion object {
+        /** 指代"过去"的词：出现任何一个才把长期记忆注入提示词。 */
+        private val PAST_CUES = listOf(
+            "之前", "上次", "上回", "以前", "早先", "曾经", "记得", "我说过", "你记得",
+            "习惯", "照旧", "老样子", "老规矩", "还是按", "继续上", "记忆", "备忘",
+        )
+
         /** 需要做路径沙箱解析的文件工具。 */
         private val PATH_TOOLS = setOf(
             "file_stat", "file_cat", "file_read", "file_tail", "file_du", "file_wc",
             "file_mkdir", "file_touch", "file_remove", "file_write", "file_append",
             "file_grep", "file_base64", "doc_extract_text", "file_list", "file_find",
             "file_download", "ocr_image", "image_describe", "submit_file",
+            "doc_write", "sheet_write", "file_zip", "file_unzip",
         )
 
         /** 只读工作区下禁止的写/删/下载类工具。 */
@@ -975,7 +1026,8 @@ class AgentController(
             - 你写好的文件（报告、代码、表格、图片、音频、文档）要让用户看到时，调用 submit_file(path, title, note) 提交一次
             - 提交只记录文件路径和大小，不复制文件；用户点开即在应用内预览该文件
             - 同一路径再次提交记为下一个版本
-            - 不要提交临时文件、缓存、中间结果
+            - 提交会先体检：0 字节、build_*/_xlsx_build 这类构建中间件、结构不完整的 docx/xlsx/pptx 都会被拒收。被拒就修好再提交一次，不要换个路径碰运气
+            - 一个任务只提交最终成果；中间过程文件留在工作区里，不要提交
 
             ### OCR 图片识别
             - 识别图片中的文字(ocr_image)：传入图片路径即可，支持中文/英文截图、照片、扫描件；
@@ -1006,12 +1058,14 @@ class AgentController(
             - 严禁把环境探测结论写进记忆：设备有没有装 Python/zip/java/busybox、Shizuku 是否可用、上次某命令失败之类，都会随版本变化，只在本轮实测，不入库。
             - 记忆里的旧结论不能当成本轮事实：引用时必须说明「以前记过一次，需要复核」，并重新验证。
 
-            ## 打包与文档生成（重要）
-            - 打包/解压一律用内建工具：file_zip、file_unzip、file_zip_list。它们是 App 内置能力，不需要 shell 里有 zip 命令，也不要靠 which/type 去"检查系统有没有 zip"——有工具就用。
-            - docx / xlsx / pptx 本质是 ZIP：先把 [Content_Types].xml、_rels/.rels、word/document.xml 等写进目录，再 file_zip(src=该构建目录, dest=xxx.docx, level=0) 打包，不要手工拼 ZIP 字节、更不要自己实现 CRC32。
-            - file_zip 只传一个目录时，目录里的文件会被放到压缩包根目录（不会多套一层目录名）。所以 src 要传 build_docx 目录本身，别传它的父目录；否则 Excel/Word 会判定文件损坏。
+            ## 写文档 / 打包（重要：先看这一节再动手）
+            - 写 Word：doc_write(path, title, content)。content 支持「# 一级标题」「## 二级」「### 三级」「- 列表」「1. 编号」「> 引用」「**加粗**」「`代码`」，空行分段。这是原生生成，一步出成品。
+            - 写 Excel：sheet_write(path, sheet, rows, header)。rows 每行一条记录，单元格用英文竖线 | 分隔，第一行默认当表头加粗；纯数字会自动写成数值。
+            - 上面两个工具生成的 docx/xlsx 结构一定正确，**不要再手工拼 [Content_Types].xml + ZIP**，也不要自己实现 CRC32。
+            - 打包/解压其它文件：file_zip、file_unzip、file_zip_list。它们是 App 内置能力，不需要 shell 里有 zip 命令；判断工具有没有用工具清单，不要靠 which/type。
+            - file_zip 只传一个目录时，目录里的文件会被放到压缩包根目录（不会多套一层目录名）。自己打 Office 包时 src 要传构建目录本身，否则 Word/Excel 会判定文件损坏。
+            - 只有 doc_write / sheet_write 覆盖不了的复杂排版（图表、多 sheet、PPT），才退回「写 XML 目录 + file_zip」的老办法；pptx 也可以用 file_zip，但必须先 file_zip_list 核对部件在根目录。
             - tar/gzip 与 ZIP 不通用；没有 zip 命令不影响生成 Office 文件。
-            - 生成 Office 文件前，先用 file_zip_list 看一眼参考文件的结构，照着补齐缺失的部件。
 
             ## 工作方式
             1. 全程使用中文思考和回答，不要用英文；

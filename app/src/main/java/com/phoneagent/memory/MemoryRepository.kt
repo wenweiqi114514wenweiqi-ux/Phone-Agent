@@ -33,6 +33,9 @@ class MemoryRepository(
         if (hits.isEmpty()) return emptyList()
         // 对话总结属于「上一轮发生过什么」，默认不注入，避免模型把旧对话当成当前上下文续写
         val filtered = hits.filter { it.category != "conversation_summary" }
+            // 读侧兜底：旧库里可能还残留「设备没有 Python/zip」这类环境结论，查询时直接丢掉，
+            // 免得模型在用户提到"上次"时把它当成本轮事实搬出来
+            .filterNot { isStaleEnvConclusion(it.content) }
         if (filtered.isEmpty()) return emptyList()
         return filtered.groupBy { it.id }
             .map { (_, list) -> list.first() to list.size }
@@ -108,6 +111,19 @@ class MemoryRepository(
                 }
                 "- $src[" + ageLabel(now - m.updatedAt) + "] " + sanitize(m.content)
             }
+    }
+
+    /**
+     * 环境探测结论（"设备没装 Python"）：这类事实随版本变化，写侧已经拦，读侧再兜一层。
+     * 只有同时出现「工具/环境词」和「结论词」才判定，避免误杀"用户用 Python 写脚本"这类正常记忆。
+     */
+    fun isStaleEnvConclusion(content: String): Boolean {
+        val env = Regex(
+            "python|pip|zip|unzip|java|jar|busybox|toybox|shizuku|root|adb|ffmpeg|node|npm|magisk",
+            RegexOption.IGNORE_CASE,
+        )
+        val verdict = Regex("没有|没装|未安装|不支持|不可用|不存在|无法安装|装不上|已确认|检测到|失败")
+        return env.containsMatchIn(content) && verdict.containsMatchIn(content)
     }
 
     /** 相对时间：让模型知道这条是多久以前记下的。 */

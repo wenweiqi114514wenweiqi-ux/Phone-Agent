@@ -83,11 +83,17 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     )
                 }
                 val zipNames = tools.count { it.name == "file_zip" || it.name == "file_unzip" || it.name == "file_zip_list" }
+                val docNames = tools.count { it.name == "doc_write" || it.name == "sheet_write" }
                 Text(
-                    "关闭后模型将看不到该工具 · 共 " + tools.size + " 个 · 压缩工具 " +
-                        if (zipNames > 0) "已就绪（" + zipNames + "/3）" else "缺失",
+                    "关闭后模型将看不到该工具 · 共 " + tools.size + " 个 · 压缩 " +
+                        (if (zipNames > 0) "就绪（" + zipNames + "/3）" else "缺失") +
+                        " · 文档 " + (if (docNames > 0) "就绪（" + docNames + "/2）" else "缺失"),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (zipNames > 0) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.error,
+                    color = if (zipNames > 0 && docNames > 0) {
+                        MaterialTheme.colorScheme.outline
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                 )
                 Text(
                     "点分组标题可展开/收起；列表由代码内置定义直接合并，不依赖数据库",

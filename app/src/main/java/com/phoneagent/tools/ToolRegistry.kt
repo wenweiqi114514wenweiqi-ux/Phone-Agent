@@ -440,6 +440,27 @@ class ToolRegistry(
             handler = "api", risk = "low", builtin = true,
         ),
         ToolDefinition(
+            name = "doc_write",
+            description = "直接生成可打开的 Word 文档（.docx）。content 支持「# 一级标题」「## 二级」「### 三级」「- 列表」「1. 编号」「> 引用」「**加粗**」「`代码`」，空行分段。写 Word 一律用它，不要手工拼 XML+ZIP",
+            parameters = obj(
+                "path" to "输出的 .docx 完整路径，如 /sdcard/Download/工作区/报告.docx",
+                "title" to "文档标题（可留空）",
+                "content" to "正文文本，用上面那几种简单标记排版",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
+            name = "sheet_write",
+            description = "直接生成可打开的 Excel 表格（.xlsx）。rows 每行一条记录、单元格用英文竖线 | 分隔，第一行默认当表头加粗；纯数字会自动写成数值",
+            parameters = obj(
+                "path" to "输出的 .xlsx 完整路径",
+                "rows" to "表格数据，多行文本；例如「姓名|分数」换行「张三|95」",
+                "sheet" to "工作表名，默认 Sheet1",
+                "header" to "第一行是否作为表头，true/false，默认 true",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
             name = "file_base64",
             description = "查看文件的 base64 编码内容（前50行）",
             parameters = obj("path" to "文件路径"),
