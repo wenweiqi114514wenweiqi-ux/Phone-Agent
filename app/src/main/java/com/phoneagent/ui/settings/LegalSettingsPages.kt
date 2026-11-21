@@ -95,9 +95,10 @@ internal fun FeedbackCard() {
             value = LegalDocs.CONTACT_EMAIL,
             hint = "点按发信给开发者",
         ) {
+            val version = appVersion(ctx)
             val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${LegalDocs.CONTACT_EMAIL}")).apply {
-                putExtra(Intent.EXTRA_SUBJECT, "PhoneAgent 反馈")
-                putExtra(Intent.EXTRA_TEXT, "\n\n（请描述问题 / 建议，并附上系统版本与复现步骤）")
+                putExtra(Intent.EXTRA_SUBJECT, "[PhoneAgent 反馈] v$version")
+                putExtra(Intent.EXTRA_TEXT, feedbackTemplate(ctx, version))
             }
             runCatching { ctx.startActivity(intent) }.onFailure {
                 copyText(ctx, LegalDocs.CONTACT_EMAIL)
@@ -161,6 +162,43 @@ private fun ContactRow(
             tint = MaterialTheme.colorScheme.outline,
         )
     }
+}
+
+
+/** 版本号：versionName + versionCode。 */
+private fun appVersion(ctx: Context): String = runCatching {
+    val info = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+    val code = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+    "${info.versionName}（versionCode $code）"
+}.getOrDefault("未知")
+
+/**
+ * 邮件正文模板：上半部分留空给用户写问题，下半部分自动附加排查所需信息。
+ * 版本号、机型、系统版本都是排查时最先要问的东西，这里直接带出去，省一轮来回。
+ */
+private fun feedbackTemplate(ctx: Context, version: String): String {
+    val model = runCatching {
+        "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}"
+    }.getOrDefault("未知")
+    val system = "Android ${android.os.Build.VERSION.RELEASE}（API ${android.os.Build.VERSION.SDK_INT}）"
+    val llmModel = runCatching {
+        (ctx.applicationContext as com.phoneagent.PhoneAgentApp).container.settings.model
+    }.getOrDefault("").ifBlank { "未配置" }
+    return """
+问题描述：
+（在这里写你遇到的具体问题 / 想要的功能）
+
+复现步骤：
+1.
+
+期望结果：
+
+——— 以下信息自动附加，请勿删除 ———
+应用版本：v$version
+设备：$model
+系统：$system
+当前模型：$llmModel
+    """.trimIndent()
 }
 
 private fun copyText(ctx: Context, text: String) {

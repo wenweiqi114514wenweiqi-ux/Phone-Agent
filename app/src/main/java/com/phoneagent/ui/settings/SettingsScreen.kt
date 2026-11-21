@@ -5,7 +5,11 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -104,8 +108,17 @@ private fun pageTitle(page: Int): String = when (page) {
  * 设置：首页为分组入口，点击进入二级详情页。
  */
 @Composable
-fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    container: AppContainer,
+    modifier: Modifier = Modifier,
+    active: Boolean = true,
+) {
     var page by rememberSaveable { mutableIntStateOf(PAGE_HOME) }
+
+    // 切到别的标签再回来时，回到设置主菜单，而不是停在上次那个二级页
+    LaunchedEffect(active) {
+        if (!active) page = PAGE_HOME
+    }
 
     // 系统返回键：子页回到设置首页
     BackHandler(enabled = page != PAGE_HOME) { page = PAGE_HOME }
@@ -120,10 +133,15 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         targetState = page,
         transitionSpec = {
             val forward = targetState > initialState
-            (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { if (forward) it / 6 else -it / 6 })
-                .togetherWith(
-                    fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { if (forward) -it / 8 else it / 8 }
-                )
+            val enter = fadeIn(tween(220, delayMillis = 30)) +
+                slideInHorizontally(
+                    animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+                ) { full -> if (forward) full / 3 else -full / 3 } +
+                scaleIn(initialScale = 0.985f, animationSpec = tween(260))
+            val exit = fadeOut(tween(150)) +
+                slideOutHorizontally(tween(230)) { full -> if (forward) -full / 6 else full / 6 } +
+                scaleOut(targetScale = 0.985f, animationSpec = tween(230))
+            enter togetherWith exit
         },
         label = "settingsPage",
     ) { current ->

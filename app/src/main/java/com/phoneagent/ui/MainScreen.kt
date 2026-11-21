@@ -3,7 +3,11 @@ package com.phoneagent.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -209,14 +213,17 @@ fun MainScreen() {
                 targetState = selected,
                 transitionSpec = {
                     val forward = targetState > initialState
-                    (fadeIn(animationSpec = tween(240)) +
-                        slideInHorizontally(animationSpec = tween(280)) { full ->
-                            if (forward) full / 10 else -full / 10
-                        }).togetherWith(
-                        fadeOut(animationSpec = tween(160)) +
-                            slideOutHorizontally(animationSpec = tween(220)) { full ->
+                    (fadeIn(animationSpec = tween(230, delayMillis = 20)) +
+                        slideInHorizontally(
+                            animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+                        ) { full -> if (forward) full / 8 else -full / 8 } +
+                        scaleIn(initialScale = 0.99f, animationSpec = tween(240))
+                        ).togetherWith(
+                        fadeOut(animationSpec = tween(150)) +
+                            slideOutHorizontally(animationSpec = tween(210)) { full ->
                                 if (forward) -full / 14 else full / 14
-                            }
+                            } +
+                            scaleOut(targetScale = 0.99f, animationSpec = tween(210))
                     )
                 },
                 label = "tab",
@@ -233,7 +240,10 @@ fun MainScreen() {
                         },
                     )
                     2 -> ToolsScreen(container = container)
-                    else -> SettingsScreen(container = container)
+                    else -> SettingsScreen(
+                        container = container,
+                        active = selected == index,
+                    )
                 }
                 }
             }
