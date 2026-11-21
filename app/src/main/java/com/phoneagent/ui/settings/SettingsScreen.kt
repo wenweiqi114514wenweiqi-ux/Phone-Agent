@@ -80,6 +80,8 @@ private const val PAGE_ABOUT = 7
 private const val PAGE_AI = 9
 private const val PAGE_ARCHIVE = 10
 private const val PAGE_LOGS = 11
+private const val PAGE_PRIVACY = 12
+private const val PAGE_TERMS = 13
 
 private fun pageTitle(page: Int): String = when (page) {
     PAGE_PERMISSION -> "后台与保活"
@@ -93,6 +95,8 @@ private fun pageTitle(page: Int): String = when (page) {
     PAGE_FEATURES -> "功能与日志"
     PAGE_MEMORY -> "记忆 · 关于你"
     PAGE_ABOUT -> "关于"
+    PAGE_PRIVACY -> "隐私声明"
+    PAGE_TERMS -> "使用条款"
     else -> "设置"
 }
 
@@ -140,7 +144,13 @@ fun SettingsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     PAGE_MEMORY -> MemorySettingsPage(container)
                     PAGE_ARCHIVE -> com.phoneagent.ui.sessions.ArchivedSessionsPage(container)
                     PAGE_LOGS -> LogsPage()
-                    else -> AboutSettingsPage(container)
+                    PAGE_PRIVACY -> PrivacySettingsPage()
+                    PAGE_TERMS -> TermsSettingsPage()
+                    else -> AboutSettingsPage(
+                        container = container,
+                        onOpenPrivacy = { page = PAGE_PRIVACY },
+                        onOpenTerms = { page = PAGE_TERMS },
+                    )
                 }
             }
         }
@@ -363,7 +373,7 @@ private fun SettingsHome(container: AppContainer, modifier: Modifier, onOpen: (I
         SectionEntry(
             icon = Icons.Filled.Info,
             title = "关于",
-            summary = "版本、工具数、组件信息",
+            summary = "版本、声明与条款、反馈渠道",
             onClick = { onOpen(PAGE_ABOUT) },
         )
 

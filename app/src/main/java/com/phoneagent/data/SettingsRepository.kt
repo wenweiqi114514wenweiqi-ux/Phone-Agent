@@ -102,6 +102,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getString(KEY_AI_PERSONA, "")!!
         set(value) = prefs.edit().putString(KEY_AI_PERSONA, value).apply()
 
+    /** 已同意的声明版本号；0 表示从未同意（首启必弹声明页）。 */
+    var legalAcceptedVersion: Int
+        get() = prefs.getInt(KEY_LEGAL_VERSION, 0)
+        set(value) = prefs.edit().putInt(KEY_LEGAL_VERSION, value).apply()
+
+    /** 同意时间，仅用于「关于」页展示。 */
+    var legalAcceptedAt: Long
+        get() = prefs.getLong(KEY_LEGAL_AT, 0L)
+        set(value) = prefs.edit().putLong(KEY_LEGAL_AT, value).apply()
+
     companion object {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_API_KEY = "api_key"
@@ -120,6 +130,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_OUT_STYLE = "output_style"
         private const val KEY_EMOJI = "emoji_level"
         private const val KEY_AI_PERSONA = "ai_persona"
+        private const val KEY_LEGAL_VERSION = "legal_accepted_version"
+        private const val KEY_LEGAL_AT = "legal_accepted_at"
 
         /** 可选上下文长度（token）。 */
         val CONTEXT_OPTIONS: List<Int> = listOf(

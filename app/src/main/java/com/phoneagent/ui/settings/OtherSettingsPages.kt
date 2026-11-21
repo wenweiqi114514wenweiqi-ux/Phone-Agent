@@ -1,17 +1,22 @@
 package com.phoneagent.ui.settings
 
 import android.annotation.SuppressLint
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -350,7 +355,11 @@ private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (
  */
 @SuppressLint("PackageManagerGetSignatures")
 @Composable
-fun AboutSettingsPage(container: AppContainer) {
+fun AboutSettingsPage(
+    container: AppContainer,
+    onOpenPrivacy: () -> Unit = {},
+    onOpenTerms: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     val tools by container.toolRegistry.observeAll().collectAsState(initial = emptyList())
     val versionName = remember {
@@ -386,13 +395,64 @@ fun AboutSettingsPage(container: AppContainer) {
             InfoRow("OCR", "ML Kit 中文文字识别")
         }
 
+        CardTitle("声明与条款", trailing = if (container.settings.legalAcceptedVersion > 0) "已同意" else "待同意")
+        SettingsCard {
+            NavRow(
+                title = "隐私声明",
+                summary = "哪些数据留在本机、哪些会发给模型服务商、申请了哪些权限",
+                onClick = onOpenPrivacy,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            NavRow(
+                title = "使用条款",
+                summary = "许可范围、使用限制、风险提示与免责",
+                onClick = onOpenTerms,
+            )
+        }
+        Text(
+            "使用本应用即表示你已阅读并同意上述声明与条款。因使用本应用（含其执行命令、读写文件、操作手机的能力）" +
+                "所造成的一切后果，均由用户自行承担，开发者不承担任何责任。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+
+        FeedbackCard()
+
         Text(
             "自用工具，仅用于本人设备。请勿用于未授权设备的自动化操作。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(horizontal = 6.dp),
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+/** 关于页里的可点条目。 */
+@Composable
+private fun NavRow(title: String, summary: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                summary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+        )
     }
 }
 

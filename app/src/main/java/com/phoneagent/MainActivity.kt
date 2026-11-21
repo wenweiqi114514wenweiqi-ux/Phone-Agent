@@ -10,9 +10,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.phoneagent.ui.FileAccessGate
 import com.phoneagent.ui.MainScreen
+import com.phoneagent.ui.legal.AgreementScreen
+import com.phoneagent.ui.legal.LegalDocs
 import com.phoneagent.ui.theme.PhoneAgentTheme
 
 class MainActivity : ComponentActivity() {
@@ -30,12 +35,38 @@ class MainActivity : ComponentActivity() {
             return
         }
         requestNotificationPermission()
+        val container = (application as PhoneAgentApp).container
         setContent {
-            val appearance by (application as PhoneAgentApp).container.appearance.state.collectAsState()
+            val appearance by container.appearance.state.collectAsState()
+            // 首次启动（或声明版本更新后）必须先明确同意，否则不进主界面
+            var accepted by remember {
+                mutableStateOf(container.settings.legalAcceptedVersion >= LegalDocs.VERSION)
+            }
             PhoneAgentTheme(appearance = appearance) {
-                MainScreen()
-                // 启动即检测文件访问权限，缺就弹窗（已授权则什么都不做）
-                FileAccessGate()
+                if (!accepted) {
+                    AgreementScreen(
+                        versionName = runCatching {
+                            packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+                        }.getOrDefault("?"),
+                        onAccept = {
+                            container.settings.legalAcceptedVersion = LegalDocs.VERSION
+                            container.settings.legalAcceptedAt = System.currentTimeMillis()
+                            accepted = true
+                        },
+                        onDecline = {
+                            android.widget.Toast.makeText(
+                                this@MainActivity,
+                                "不同意声明则无法使用本应用",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            finish()
+                        },
+                    )
+                } else {
+                    MainScreen()
+                    // 启动即检测文件访问权限，缺就弹窗（已授权则什么都不做）
+                    FileAccessGate()
+                }
             }
         }
     }
