@@ -8,6 +8,16 @@ import kotlinx.coroutines.flow.asStateFlow
 /** 外观偏好：主色、圆角、深浅模式、字体缩放、动态取色。 */
 data class Appearance(
     val accent: String = "Indigo",
+    /** 自定义主色 ARGB；0 表示沿用 [accent] 预设 */
+    val accentCustom: Long = 0L,
+    /** 自定义背景色 ARGB；0 表示用主题默认 */
+    val backgroundCustom: Long = 0L,
+    /** 自定义面板 / 卡片色 ARGB；0 表示用主题默认 */
+    val surfaceCustom: Long = 0L,
+    /** 自定义辅助色（secondary）ARGB；0 表示由主色推导 */
+    val secondaryCustom: Long = 0L,
+    /** 自定义强调色（tertiary）ARGB；0 表示由主色推导 */
+    val tertiaryCustom: Long = 0L,
     val cornerDp: Int = 20,
     /** 0=跟随系统 1=浅色 2=深色 */
     val darkMode: Int = 0,
@@ -25,6 +35,11 @@ class AppearanceRepository(context: Context) {
     private val _state = MutableStateFlow(
         Appearance(
             accent = prefs.getString(KEY_ACCENT, "Indigo") ?: "Indigo",
+            accentCustom = prefs.getLong(KEY_ACCENT_CUSTOM, 0L),
+            backgroundCustom = prefs.getLong(KEY_BG_CUSTOM, 0L),
+            surfaceCustom = prefs.getLong(KEY_SURFACE_CUSTOM, 0L),
+            secondaryCustom = prefs.getLong(KEY_SECONDARY_CUSTOM, 0L),
+            tertiaryCustom = prefs.getLong(KEY_TERTIARY_CUSTOM, 0L),
             cornerDp = prefs.getInt(KEY_CORNER, 20).coerceIn(6, 32),
             darkMode = prefs.getInt(KEY_DARK, 0).coerceIn(0, 2),
             fontScale = prefs.getFloat(KEY_FONT, 1f).coerceIn(0.8f, 1.3f),
@@ -39,6 +54,11 @@ class AppearanceRepository(context: Context) {
         _state.value = next
         prefs.edit()
             .putString(KEY_ACCENT, next.accent)
+            .putLong(KEY_ACCENT_CUSTOM, next.accentCustom)
+            .putLong(KEY_BG_CUSTOM, next.backgroundCustom)
+            .putLong(KEY_SURFACE_CUSTOM, next.surfaceCustom)
+            .putLong(KEY_SECONDARY_CUSTOM, next.secondaryCustom)
+            .putLong(KEY_TERTIARY_CUSTOM, next.tertiaryCustom)
             .putInt(KEY_CORNER, next.cornerDp)
             .putInt(KEY_DARK, next.darkMode)
             .putFloat(KEY_FONT, next.fontScale)
@@ -52,6 +72,11 @@ class AppearanceRepository(context: Context) {
 
     companion object {
         private const val KEY_ACCENT = "accent"
+        private const val KEY_ACCENT_CUSTOM = "accent_custom"
+        private const val KEY_BG_CUSTOM = "bg_custom"
+        private const val KEY_SURFACE_CUSTOM = "surface_custom"
+        private const val KEY_SECONDARY_CUSTOM = "secondary_custom"
+        private const val KEY_TERTIARY_CUSTOM = "tertiary_custom"
         private const val KEY_CORNER = "corner"
         private const val KEY_DARK = "dark"
         private const val KEY_FONT = "font_scale"

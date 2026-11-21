@@ -45,7 +45,7 @@ object LegalDocs {
         ),
         LegalSection(
             "五、第三方组件",
-            "本应用使用 Shizuku（执行通道）、ML Kit（文字识别）等开源或第三方库。这些组件在本机运行，不向开发者回传数据。应用的源代码公开在 GitHub 上，可自行审查。",
+            "本应用使用 Shizuku（执行通道）、ML Kit（文字识别）、Universal File Preview（Office 文档本地渲染，MIT）等开源或第三方库。Office 文档的解析全部在设备本地完成，不会上传。这些组件在本机运行，不向开发者回传数据。应用的源代码公开在 GitHub 上，可自行审查。",
         ),
         LegalSection(
             "六、安全提示",

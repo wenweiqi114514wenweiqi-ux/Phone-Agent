@@ -19,3 +19,6 @@ keystore.properties
 .idea/
 *.iml
 .DS_Store
+
+# 文档预览引擎的 npm 依赖与产物
+node_modules/

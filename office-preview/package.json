@@ -1,0 +1,15 @@
+{
+  "name": "phoneagent-office-preview",
+  "private": true,
+  "version": "1.0.0",
+  "description": "把 Universal File Preview 打成单文件 bundle，供 Android WebView 离线加载",
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2020 --outfile=../app/src/main/assets/office/bundle.js"
+  },
+  "dependencies": {
+    "@dukeofwest/universal-file-preview": "^0.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -127,7 +128,7 @@ class FilePreviewActivity : ComponentActivity() {
     }
 }
 
-private enum class PreviewKind { TEXT, MARKDOWN, HTML, IMAGE, UNSUPPORTED }
+private enum class PreviewKind { TEXT, MARKDOWN, HTML, IMAGE, OFFICE, UNSUPPORTED }
 
 private fun detectKind(name: String, mime: String): PreviewKind {
     val ext = name.substringAfterLast('.', "").lowercase()
@@ -136,6 +137,7 @@ private fun detectKind(name: String, mime: String): PreviewKind {
         mime == "text/html" || ext == "html" || ext == "htm" -> PreviewKind.HTML
         mime.startsWith("image/") || ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp") ->
             PreviewKind.IMAGE
+        ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> PreviewKind.OFFICE
         mime.startsWith("text/") || ext in setOf(
             "txt", "log", "json", "xml", "csv", "yml", "yaml", "ini", "conf", "sh",
             "kt", "java", "py", "js", "ts", "css", "sql", "toml", "gradle", "properties",
@@ -199,6 +201,11 @@ private fun PreviewScreen(
                 }
             },
             actions = {
+                if (kind == PreviewKind.OFFICE) {
+                    IconButton(onClick = { openExternal(ctx, file, mime) }) {
+                        Icon(Icons.Filled.Share, contentDescription = "用其他应用打开")
+                    }
+                }
                 if (kind == PreviewKind.HTML) {
                     TextButton(onClick = { htmlDark = !htmlDark }) {
                         Text(
@@ -227,6 +234,11 @@ private fun PreviewScreen(
                     HtmlPreview(file = file, dark = htmlDark, bgColor = pageBg)
                 }
                 PreviewKind.IMAGE -> ImagePreview(file)
+                PreviewKind.OFFICE -> OfficePreview(
+                    file = file,
+                    name = name,
+                    mime = mime,
+                )
                 PreviewKind.UNSUPPORTED -> UnsupportedPreview(
                     name = name,
                     onOpenExternal = { openExternal(ctx, file, mime) },
@@ -461,6 +473,82 @@ private fun MarkdownPreview(file: File) {
     }
 }
 
+/**
+ * Office（docx / xlsx / pptx / odt / ods / odp）：内置 Universal File Preview 离线引擎。
+ *
+ * 文件不经过复制或上传：Kotlin 端用 WebViewAssetLoader 把用户文件挂在一个一次性 token 下，
+ * 页面里的 fetch 直接读字节，内存只占一份。引擎署名见页面顶部与「关于 → 开源许可」。
+ */
+@Composable
+private fun OfficePreview(file: File, name: String, mime: String) {
+    val bg = MaterialTheme.colorScheme.background
+    val fg = MaterialTheme.colorScheme.onBackground
+    val hexBg = bg.toHex()
+    val hexFg = fg.toHex()
+
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { context ->
+            val token = "doc" + System.nanoTime()
+            val loader = androidx.webkit.WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", androidx.webkit.WebViewAssetLoader.AssetsPathHandler(context))
+                .addPathHandler(
+                    "/files/",
+                    object : androidx.webkit.WebViewAssetLoader.PathHandler {
+                        override fun handle(path: String): android.webkit.WebResourceResponse? {
+                            val key = path.substringBefore("?").trim('/')
+                            if (key != token) return null
+                            val stream = runCatching { java.io.FileInputStream(file) }.getOrNull() ?: return null
+                            return android.webkit.WebResourceResponse(
+                                mime.ifBlank { "application/octet-stream" },
+                                null,
+                                stream,
+                            )
+                        }
+                    },
+                )
+                .build()
+
+            android.webkit.WebView(context).apply {
+                setBackgroundColor(bg.toArgb())
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
+                settings.textZoom = 100
+                webViewClient = object : android.webkit.WebViewClient() {
+                    override fun shouldInterceptRequest(
+                        view: android.webkit.WebView,
+                        request: android.webkit.WebResourceRequest,
+                    ): android.webkit.WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+                }
+                webChromeClient = object : android.webkit.WebChromeClient() {
+                    override fun onConsoleMessage(msg: android.webkit.ConsoleMessage): Boolean {
+                        com.phoneagent.util.AppLog.warn("OfficePreview", "${msg.message()} @${msg.lineNumber()}")
+                        return true
+                    }
+                }
+                val url = "https://appassets.androidplatform.net/assets/office/index.html" +
+                    "?f=$token&name=${android.net.Uri.encode(name)}&mime=${android.net.Uri.encode(mime)}" +
+                    "&bg=$hexBg&fg=$hexFg"
+                loadUrl(url)
+            }
+        },
+        update = { /* 只加载一次 */ },
+    )
+}
+
+/** Compose Color → 6 位十六进制（不带 #），给网页端做主题色。 */
+private fun Color.toHex(): String {
+    val r = (red * 255).toInt().coerceIn(0, 255)
+    val g = (green * 255).toInt().coerceIn(0, 255)
+    val b = (blue * 255).toInt().coerceIn(0, 255)
+    return "%02X%02X%02X".format(r, g, b)
+}
+
 /** HTML：系统 WebView 渲染本地文件；禁 JS 桥、禁跨文件访问。 */
 @Composable
 private fun HtmlPreview(file: File, dark: Boolean, bgColor: Int) {
@@ -582,7 +670,7 @@ private fun UnsupportedPreview(name: String, onOpenExternal: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Word / Excel / PPT / 音视频 会在后续版本接入",
+                "旧版 Office（.doc / .xls / .ppt）与音视频（音视频在 1.0.14 之后接入）暂不支持",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(top = 8.dp),

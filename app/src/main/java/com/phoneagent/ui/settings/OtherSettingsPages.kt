@@ -393,7 +393,30 @@ fun AboutSettingsPage(
             InfoRow("Shell", "Shizuku + Root")
             HorizontalDivider()
             InfoRow("OCR", "ML Kit 中文文字识别")
+            HorizontalDivider()
+            InfoRow("Office 预览", "Universal File Preview（本地）")
         }
+
+        CardTitle("开源许可")
+        SettingsCard {
+            InfoRow("Universal File Preview", "MIT · docx / xlsx / pptx 本地渲染")
+            HorizontalDivider()
+            InfoRow("AndroidX · Compose · Room", "Apache-2.0")
+            HorizontalDivider()
+            InfoRow("OkHttp", "Apache-2.0")
+            HorizontalDivider()
+            InfoRow("Shizuku API", "Apache-2.0")
+            HorizontalDivider()
+            InfoRow("Google ML Kit", "Google 服务条款")
+            HorizontalDivider()
+            InfoRow("本应用", "MIT · 源代码公开")
+        }
+        Text(
+            "文档预览由开源引擎 Universal File Preview（MIT）在设备本地渲染，文件不会上传到任何服务器。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(horizontal = 6.dp),
+        )
 
         CardTitle("声明与条款", trailing = if (container.settings.legalAcceptedVersion > 0) "已同意" else "待同意")
         SettingsCard {
