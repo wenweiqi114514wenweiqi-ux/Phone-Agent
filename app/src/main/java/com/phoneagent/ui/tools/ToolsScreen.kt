@@ -83,11 +83,11 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     )
                 }
                 val zipNames = tools.count { it.name == "file_zip" || it.name == "file_unzip" || it.name == "file_zip_list" }
-                val docNames = tools.count { it.name == "doc_write" || it.name == "sheet_write" }
+                val docNames = tools.count { it.name == "doc_write" || it.name == "sheet_write" || it.name == "ppt_write" }
                 Text(
                     "关闭后模型将看不到该工具 · 共 " + tools.size + " 个 · 压缩 " +
                         (if (zipNames > 0) "就绪（" + zipNames + "/3）" else "缺失") +
-                        " · 文档 " + (if (docNames > 0) "就绪（" + docNames + "/2）" else "缺失"),
+                        " · 文档 " + (if (docNames > 0) "就绪（" + docNames + "/3）" else "缺失"),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (zipNames > 0 && docNames > 0) {
                         MaterialTheme.colorScheme.outline

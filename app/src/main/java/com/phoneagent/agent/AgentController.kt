@@ -60,7 +60,7 @@ class AgentController(
     private val json = Json { ignoreUnknownKeys = true }
 
     /** 多步循环最大轮数（防止无限循环）。 */
-    private val maxSteps = 10
+    private val maxSteps = 24
 
     /** 用当前模型把用户第一句话浓缩成 6–14 字标题；失败返回 null（调用方回落截断）。 */
     suspend fun generateTitle(firstText: String): String? {
@@ -151,6 +151,9 @@ class AgentController(
         }
         val effectiveContext = minOf(settings.contextLength, profile.maxContext)
 
+        // 用户这条消息里有没有列步骤：有的话写进系统提示，当成必须划完的清单
+        val checklist = extractChecklist(userText)
+
         // 2. 记忆检索（仅在开关打开时；只取与本次问题相关的最多 6 条）
         // 只有用户这句话明显在指"以前/上次/我的习惯"时才注入记忆。
         // 之前是每轮都塞，模型会主动把旧对话里的环境结论（"设备没有 Python"）搬出来当前提，
@@ -217,8 +220,15 @@ class AgentController(
         val submittedThisRun = mutableSetOf<String>()
         var lastSignature: String? = null
         for (step in 0 until maxSteps) {
+            // 快到步数上限时提前提醒收尾，避免最后一步被硬截断
+            if (step == maxSteps - 2) {
+                history += ChatMessage(
+                    "system",
+                    "提示：本轮只剩 2 步工具调用额度。请优先把还没完成的项收尾，并在最终回答里明确列出未完成项和原因。",
+                )
+            }
             val messages = buildList {
-                add(ChatMessage("system", buildSystemPrompt(memoryBlock) + workspacePrompt(workspace)))
+                add(ChatMessage("system", buildSystemPrompt(memoryBlock, checklist) + workspacePrompt(workspace)))
                 addAll(history)
                 if (completedSteps.isNotEmpty()) {
                     add(
@@ -434,7 +444,7 @@ class AgentController(
             || cleaned.isBlank()
         if (needsFinalSummary) {
             val messages = buildList {
-                add(ChatMessage("system", buildSystemPrompt(memoryBlock) + workspacePrompt(workspace)))
+                add(ChatMessage("system", buildSystemPrompt(memoryBlock, checklist) + workspacePrompt(workspace)))
                 addAll(history)
                 // 强制模型输出纯文本总结，不要再调用工具
                 add(ChatMessage("user", "所有工具已执行完毕。请直接用简洁的中文总结操作结果并回答用户的问题，不要调用任何工具，不要输出工具调用格式。"))
@@ -605,6 +615,21 @@ class AgentController(
         return "/" + out.joinToString("/")
     }
 
+    /**
+     * 抽取用户消息里的编号步骤（1. / 1、/ 1) / - ）。
+     * 目的是让"一条消息五个步骤"变成模型看得见的清单，而不是让它自己记。
+     */
+    private fun extractChecklist(text: String): String {
+        val items = Regex("(?m)^\\s*(?:\\d+[.、)]|[-*])\\s+(.{2,80})$")
+            .findAll(text)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() }
+            .take(12)
+            .toList()
+        if (items.size < 2) return ""
+        return items.mapIndexed { i, item -> "${i + 1}. $item" }.joinToString("\n")
+    }
+
     /** 用户这句话是否在指"以前/上次/习惯"——是才注入长期记忆。 */
     private fun mentionsPast(text: String): Boolean =
         PAST_CUES.any { text.contains(it) }
@@ -618,7 +643,7 @@ class AgentController(
         "file_download" -> "path"
         "ocr_image" -> "path"
         "submit_file" -> "path"
-        "doc_write", "sheet_write" -> "path"
+        "doc_write", "sheet_write", "ppt_write", "sheet_read" -> "path"
         "file_zip" -> "dest"
         "file_unzip" -> "dest"
         else -> null
@@ -959,8 +984,13 @@ class AgentController(
         }
     }
 
-    private fun buildSystemPrompt(memoryBlock: String): String = buildString {
+    private fun buildSystemPrompt(memoryBlock: String, checklist: String = ""): String = buildString {
         append(SYSTEM_PROMPT)
+        if (checklist.isNotBlank()) {
+            append("\n\n## 用户这条消息里明确列出的步骤（必须全部完成）\n")
+            append(checklist)
+            append("\n每做完一步在心里划掉一项；还有没划掉的就不许给最终回答。\n")
+        }
         val persona = settings.userPersona.trim()
         if (persona.isNotBlank()) {
             append("\n\n## 关于用户（用户自己填写的形象描述，只作背景参考）：\n")
@@ -1000,13 +1030,14 @@ class AgentController(
             "file_mkdir", "file_touch", "file_remove", "file_write", "file_append",
             "file_grep", "file_base64", "doc_extract_text", "file_list", "file_find",
             "file_download", "ocr_image", "image_describe", "submit_file",
-            "doc_write", "sheet_write", "file_zip", "file_unzip",
+            "doc_write", "sheet_write", "ppt_write", "sheet_read", "file_zip", "file_unzip",
         )
 
         /** 只读工作区下禁止的写/删/下载类工具。 */
         private val WRITE_TOOLS = setOf(
             "file_mkdir", "file_touch", "file_remove", "file_write", "file_append",
             "file_move", "file_copy", "file_chmod", "file_download",
+            "doc_write", "sheet_write", "ppt_write",
         )
 
         /** 与 docs/system_prompt.md 保持同步（开发期以代码为准，文档为参考）。 */
@@ -1061,11 +1092,19 @@ class AgentController(
             ## 写文档 / 打包（重要：先看这一节再动手）
             - 写 Word：doc_write(path, title, content)。content 支持「# 一级标题」「## 二级」「### 三级」「- 列表」「1. 编号」「> 引用」「**加粗**」「`代码`」，空行分段。这是原生生成，一步出成品。
             - 写 Excel：sheet_write(path, sheet, rows, header)。rows 每行一条记录，单元格用英文竖线 | 分隔，第一行默认当表头加粗；纯数字会自动写成数值。
+            - 读 Excel：sheet_read(path, sheet)。直接返回制表符表格，不要再解压去看 sheet1.xml，也不要靠猜。
+            - 写 PPT：ppt_write(path, slides)。每页用单独一行 --- 分隔，每页第一行是标题，其余每行一条要点；一页最多 12 条、总共 50 页。
             - 上面两个工具生成的 docx/xlsx 结构一定正确，**不要再手工拼 [Content_Types].xml + ZIP**，也不要自己实现 CRC32。
             - 打包/解压其它文件：file_zip、file_unzip、file_zip_list。它们是 App 内置能力，不需要 shell 里有 zip 命令；判断工具有没有用工具清单，不要靠 which/type。
             - file_zip 只传一个目录时，目录里的文件会被放到压缩包根目录（不会多套一层目录名）。自己打 Office 包时 src 要传构建目录本身，否则 Word/Excel 会判定文件损坏。
             - 只有 doc_write / sheet_write 覆盖不了的复杂排版（图表、多 sheet、PPT），才退回「写 XML 目录 + file_zip」的老办法；pptx 也可以用 file_zip，但必须先 file_zip_list 核对部件在根目录。
             - tar/gzip 与 ZIP 不通用；没有 zip 命令不影响生成 Office 文件。
+
+            ## 收尾纪律（重要）
+            - 用户在一条消息里列了多个步骤（1、2、3…）时，必须全部做完再汇报；不要做到一半就停下来问"要不要继续"。
+            - 没做完的项必须明确写"未完成 + 卡在哪"，绝不把没做的事说成做完了。
+            - 某一步失败不影响后面的步骤：记下原因，继续往下做，最后统一说明失败项。
+            - 只有两种情况可以中途停：需要用户授权的危险操作，或者确实缺了只有用户能给的信息。
 
             ## 工作方式
             1. 全程使用中文思考和回答，不要用英文；
@@ -1077,6 +1116,7 @@ class AgentController(
 
             ## 工具调用规则（必须严格遵守）
             - 只能使用提供的工具，禁止发明不存在的工具名；
+            - 工具是否存在，以本次请求里给出的工具清单为准：清单里有就直接调用，不要先用 which / type / ls 去探测"系统里有没有这个命令"。
             - 必须通过标准函数调用（function calling / tool_calls）机制发起工具调用，绝对不要在正文或思考里手写任何工具调用标签、XML、DSML 或伪代码；
             - 严禁输出 DSML、XML 格式的工具调用，包括但不限于 invoke、parameter、calls、function 等标签，这些写法系统无法执行；
             - 调用工具时，正文和思考里都不要写工具名和参数，只通过工具调用面板填写参数；

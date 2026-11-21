@@ -25,7 +25,7 @@ object OfficeWriter {
             dest.parentFile?.mkdirs()
             ZipOutputStream(dest.outputStream().buffered()).use { z ->
                 put(z, "[Content_Types].xml", CONTENT_TYPES_DOCX)
-                put(z, "_rels/.rels", RELS_ROOT)
+                put(z, "_rels/.rels", RELS_ROOT_DOCX)
                 put(z, "word/document.xml", buildDocumentXml(title, content))
                 put(z, "word/styles.xml", STYLES_DOCX)
                 put(z, "word/_rels/document.xml.rels", RELS_DOCX)
@@ -128,7 +128,7 @@ object OfficeWriter {
             dest.parentFile?.mkdirs()
             ZipOutputStream(dest.outputStream().buffered()).use { z ->
                 put(z, "[Content_Types].xml", CONTENT_TYPES_XLSX)
-                put(z, "_rels/.rels", RELS_ROOT)
+                put(z, "_rels/.rels", RELS_ROOT_XLSX)
                 put(z, "xl/workbook.xml", workbookXml(name))
                 put(z, "xl/_rels/workbook.xml.rels", RELS_XLSX)
                 put(z, "xl/styles.xml", STYLES_XLSX)
@@ -230,9 +230,14 @@ object OfficeWriter {
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 </Types>"""
 
-    private val RELS_ROOT = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    private val RELS_ROOT_DOCX = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
+
+    private val RELS_ROOT_XLSX = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>"""
 
     private val RELS_DOCX = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

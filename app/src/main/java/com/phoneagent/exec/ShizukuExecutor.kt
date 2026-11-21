@@ -141,6 +141,8 @@ class ShizukuExecutor(
             "doc_extract_text" -> docExtractText(command)
             "doc_write" -> docWrite(command)
             "sheet_write" -> sheetWrite(command)
+            "ppt_write" -> pptWrite(command)
+            "sheet_read" -> sheetRead(command)
             "file_zip" -> zipCreate(command)
             "file_unzip" -> zipExtract(command)
             "file_zip_list" -> zipList(command)
@@ -501,6 +503,28 @@ class ShizukuExecutor(
         if (ok) ExecResult(true, message) else ExecResult(false, "", message)
     }
 
+
+    /** ppt_write：一页标题 + 若干要点，每页用一行 --- 分隔。 */
+    private suspend fun pptWrite(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val path = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val slides = command.args["slides"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数（要写出的 .pptx 完整路径）")
+        if (!path.lowercase().endsWith(".pptx")) {
+            return@withContext ExecResult(false, "", "path 必须以 .pptx 结尾：$path")
+        }
+        if (slides.isBlank()) return@withContext ExecResult(false, "", "slides 是空的")
+        val (ok, message) = PptxWriter.write(java.io.File(path), slides)
+        if (ok) ExecResult(true, message) else ExecResult(false, "", message)
+    }
+
+    /** sheet_read：把 xlsx 读成文本表格（支持共享字符串，Excel/WPS 生成的文件也能读）。 */
+    private suspend fun sheetRead(command: ParsedCommand): ExecResult = withContext(Dispatchers.IO) {
+        val path = command.args["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val sheet = command.args["sheet"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (path.isBlank()) return@withContext ExecResult(false, "", "缺少 path 参数")
+        val (ok, message) = OfficeReader.readSheet(java.io.File(path), sheet)
+        if (ok) ExecResult(true, message) else ExecResult(false, "", message)
+    }
 
     /** 读取当前激活的模型配置（多模态看图需要）。 */
     private fun activeModelProfile(): com.phoneagent.data.ModelProfile? {

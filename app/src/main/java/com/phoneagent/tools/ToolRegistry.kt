@@ -461,6 +461,24 @@ class ToolRegistry(
             handler = "api", risk = "low", builtin = true,
         ),
         ToolDefinition(
+            name = "ppt_write",
+            description = "直接生成可打开的 PowerPoint（.pptx）。slides 里每页用单独一行 --- 分隔；每页第一行是标题，其余每行一条要点（行首 - 会被去掉）。一页最多 12 条要点、50 页",
+            parameters = obj(
+                "path" to "输出的 .pptx 完整路径",
+                "slides" to "多页文本，例如「第一页标题」换行「- 要点一」换行「- 要点二」换行「---」换行「第二页标题」",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
+            name = "sheet_read",
+            description = "把 xlsx 读成文本表格（制表符分隔）。支持 Excel/WPS 生成的共享字符串、数字、布尔；不传 sheet 默认读第一个工作表",
+            parameters = obj(
+                "path" to "xlsx 文件完整路径",
+                "sheet" to "工作表名，可留空（默认第一个）",
+            ),
+            handler = "api", risk = "low", builtin = true,
+        ),
+        ToolDefinition(
             name = "file_base64",
             description = "查看文件的 base64 编码内容（前50行）",
             parameters = obj("path" to "文件路径"),
