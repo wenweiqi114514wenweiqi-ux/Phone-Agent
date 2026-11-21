@@ -322,9 +322,11 @@ class ShizukuExecutor(
                 val plain = xml
                     .replace("</w:p>", "\n")
                     .replace(Regex("<[^>]+>"), "")
-                    .replace("&amp;", "&")
                     .replace("&lt;", "<")
                     .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&apos;", "'")
+                    .replace("&amp;", "&")
                     .replace(Regex("\n{3,}"), "\n\n")
                     .trim()
                 val text = plain.lines().take(200).joinToString("\n")

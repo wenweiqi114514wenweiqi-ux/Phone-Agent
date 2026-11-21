@@ -42,7 +42,8 @@ async function openDocument() {
   setStatus("正在解析…");
   notify("loading", p.name);
   try {
-    const res = await fetch("files/" + encodeURIComponent(p.token), { cache: "no-store" });
+    // 必须用绝对路径 /files/：页面本身在 /assets/office/ 下，相对路径会变成 /assets/office/files/... 而 404
+    const res = await fetch("/files/" + encodeURIComponent(p.token), { cache: "no-store" });
     if (!res.ok) throw new Error("读取文件失败：HTTP " + res.status);
     const bytes = await res.arrayBuffer();
 

@@ -490,20 +490,44 @@ private fun OfficePreview(file: File, name: String, mime: String) {
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             val token = "doc" + System.nanoTime()
+            val assetsHandler = androidx.webkit.WebViewAssetLoader.AssetsPathHandler(context)
+
+            // 取文件：/files/<token>。页面在 /assets/office/ 下，若用相对路径会变成
+            // /assets/office/files/... 而 404，所以下面同时兼容 /assets/files/<token>。
+            fun serve(key: String): android.webkit.WebResourceResponse {
+                val path = key.substringBefore("?").trim('/')
+                if (path != token) {
+                    return android.webkit.WebResourceResponse(
+                        "text/plain", "UTF-8", 404, "Not Found", null,
+                        java.io.ByteArrayInputStream("预览 token 不匹配".toByteArray()),
+                    )
+                }
+                val stream = runCatching { java.io.FileInputStream(file) }.getOrNull()
+                    ?: return android.webkit.WebResourceResponse(
+                        "text/plain", "UTF-8", 403, "Forbidden", null,
+                        java.io.ByteArrayInputStream("文件读不到，可能没有存储权限".toByteArray()),
+                    )
+                return android.webkit.WebResourceResponse(
+                    mime.ifBlank { "application/octet-stream" },
+                    null,
+                    stream,
+                )
+            }
+
+            val fileHandler = object : androidx.webkit.WebViewAssetLoader.PathHandler {
+                override fun handle(path: String): android.webkit.WebResourceResponse = serve(path)
+            }
+
             val loader = androidx.webkit.WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", androidx.webkit.WebViewAssetLoader.AssetsPathHandler(context))
+                .addPathHandler("/files/", fileHandler)
                 .addPathHandler(
-                    "/files/",
+                    "/assets/",
                     object : androidx.webkit.WebViewAssetLoader.PathHandler {
                         override fun handle(path: String): android.webkit.WebResourceResponse? {
-                            val key = path.substringBefore("?").trim('/')
-                            if (key != token) return null
-                            val stream = runCatching { java.io.FileInputStream(file) }.getOrNull() ?: return null
-                            return android.webkit.WebResourceResponse(
-                                mime.ifBlank { "application/octet-stream" },
-                                null,
-                                stream,
-                            )
+                            val p = path.trimStart('/')
+                            // 兼容旧 bundle：/assets/files/<token>
+                            if (p.startsWith("files/")) return serve(p.removePrefix("files/"))
+                            return assetsHandler.handle(path)
                         }
                     },
                 )
@@ -511,6 +535,18 @@ private fun OfficePreview(file: File, name: String, mime: String) {
 
             android.webkit.WebView(context).apply {
                 setBackgroundColor(bg.toArgb())
+                // 页面里的解析状态/报错回传原生日志，出问题时能在「设置 → 运行日志」里看到原因
+                addJavascriptInterface(
+                    object {
+                        @android.webkit.JavascriptInterface
+                        fun onEvent(type: String, text: String) {
+                            runCatching {
+                                com.phoneagent.util.AppLog.info("OfficePreview", "$type: $text")
+                            }
+                        }
+                    },
+                    "PhiBridge",
+                )
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = false
