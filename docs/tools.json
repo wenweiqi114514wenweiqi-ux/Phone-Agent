@@ -1,0 +1,175 @@
+[
+  {
+    "name": "pm_list_packages",
+    "description": "列出手机已安装的应用包名列表",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "handler": "shell",
+    "command_template": "pm list packages",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "pm_uninstall",
+    "description": "卸载指定应用（包名）",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "pkg": { "type": "string", "description": "要卸载的应用包名，如 com.example.app" }
+      },
+      "required": ["pkg"]
+    },
+    "handler": "shell",
+    "command_template": "pm uninstall {pkg}",
+    "risk": "high",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "am_start",
+    "description": "启动应用或指定界面（包名/组件）",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "component": { "type": "string", "description": "组件名，如 com.example.app/.MainActivity；也可只填包名" }
+      },
+      "required": ["component"]
+    },
+    "handler": "shell",
+    "command_template": "am start -n {component}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "screencap",
+    "description": "截取当前屏幕并保存到指定路径",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "保存路径，如 /sdcard/Download/screen.png" }
+      },
+      "required": ["path"]
+    },
+    "handler": "shell",
+    "command_template": "screencap -p {path}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "input_keyevent",
+    "description": "模拟按键（keycode 数字）",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "keycode": { "type": "string", "description": "按键码：3=返回 4=Home 24=音量加 26=电源 66=回车" }
+      },
+      "required": ["keycode"]
+    },
+    "handler": "shell",
+    "command_template": "input keyevent {keycode}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "input_text",
+    "description": "向当前焦点输入文本",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "description": "要输入的文本" }
+      },
+      "required": ["text"]
+    },
+    "handler": "shell",
+    "command_template": "input text {text}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "file_list",
+    "description": "列出目录下的文件",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "目录路径，如 /sdcard/Download" }
+      },
+      "required": ["path"]
+    },
+    "handler": "shell",
+    "command_template": "ls {path}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "file_remove",
+    "description": "删除文件或目录",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "description": "要删除的文件或目录路径" }
+      },
+      "required": ["path"]
+    },
+    "handler": "shell",
+    "command_template": "rm -rf {path}",
+    "risk": "high",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "settings_put",
+    "description": "修改系统设置项",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "description": "设置键，如 screen_brightness/screen_off_timeout" },
+        "value": { "type": "string", "description": "设置值" }
+      },
+      "required": ["key", "value"]
+    },
+    "handler": "shell",
+    "command_template": "settings put system {key} {value}",
+    "risk": "high",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "dumpsys",
+    "description": "查询系统服务信息",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "service": { "type": "string", "description": "服务名，如 activity/window/power" }
+      },
+      "required": ["service"]
+    },
+    "handler": "shell",
+    "command_template": "dumpsys {service}",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  },
+  {
+    "name": "logcat",
+    "description": "读取最近系统日志",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "handler": "shell",
+    "command_template": "logcat -d -t 200",
+    "risk": "low",
+    "enabled": true,
+    "builtin": true
+  }
+]

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Phone Agent</string>
+    <string name="a11y_desc">允许 Phone Agent 在由你发起的任务中执行点击、滑动、输入等界面操作。服务不会自动操作，只有你下达指令时才会执行。</string>
+</resources>
