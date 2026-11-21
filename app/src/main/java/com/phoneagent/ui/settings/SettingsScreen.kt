@@ -111,24 +111,20 @@ private fun pageTitle(page: Int): String = when (page) {
 fun SettingsScreen(
     container: AppContainer,
     modifier: Modifier = Modifier,
-    active: Boolean = true,
-    resetSignal: Int = 0,
+    page: Int = PAGE_HOME,
+    onPageChange: (Int) -> Unit = {},
 ) {
-    var page by rememberSaveable { mutableIntStateOf(PAGE_HOME) }
+    // 页面状态由 MainScreen 持有：切标签、系统返回、点标题栏返回都改同一份状态，
+    // 不再依赖"离开组合时触发副作用"（那条路在切标签的那一帧会被取消，所以之前没生效）。
+    fun go(target: Int) = onPageChange(target)
 
-    // 切到别的标签时由底部导航打一次信号，回到主菜单而不是上次那个二级页。
-    // 不能用 LaunchedEffect(active)：切走的那一帧本页正在退出组合，effect 会被直接取消。
-    LaunchedEffect(resetSignal) {
-        if (resetSignal > 0) page = PAGE_HOME
-    }
-
-    // 系统返回键：子页回到设置首页
-    BackHandler(enabled = page != PAGE_HOME) { page = PAGE_HOME }
+    // 系统返回键 / 全屏手势：子页回到设置首页
+    BackHandler(enabled = page != PAGE_HOME) { go(PAGE_HOME) }
 
     // 别处（底部小提示）请求「打开日志」时直接跳到运行日志页
     val openLogReq by com.phoneagent.util.AppEvents.openLog.collectAsState()
     LaunchedEffect(openLogReq) {
-        if (openLogReq > 0) page = PAGE_LOGS
+        if (openLogReq > 0) go(PAGE_LOGS)
     }
 
     AnimatedContent(
@@ -148,10 +144,10 @@ fun SettingsScreen(
         label = "settingsPage",
     ) { current ->
     if (current == PAGE_HOME) {
-        SettingsHome(container = container, modifier = modifier, onOpen = { page = it })
+        SettingsHome(container = container, modifier = modifier, onOpen = { go(it) })
     } else {
         Column(modifier = modifier.fillMaxSize()) {
-            DetailHeader(title = pageTitle(current), onBack = { page = PAGE_HOME })
+            DetailHeader(title = pageTitle(current), onBack = { go(PAGE_HOME) })
             Box(modifier = Modifier.weight(1f)) {
                 when (current) {
                     PAGE_PERMISSION -> PermissionSettingsPage(container)
@@ -168,8 +164,8 @@ fun SettingsScreen(
                     PAGE_TERMS -> TermsSettingsPage()
                     else -> AboutSettingsPage(
                         container = container,
-                        onOpenPrivacy = { page = PAGE_PRIVACY },
-                        onOpenTerms = { page = PAGE_TERMS },
+                        onOpenPrivacy = { go(PAGE_PRIVACY) },
+                        onOpenTerms = { go(PAGE_TERMS) },
                     )
                 }
             }

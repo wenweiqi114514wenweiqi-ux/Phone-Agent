@@ -21,10 +21,27 @@ class ToolRegistry(
     private val toolDao: ToolDao,
 ) {
     fun observeAll(): Flow<List<ToolDefinition>> =
-        toolDao.observeAll().map { list -> list.map { it.toDefinition() } }
+        toolDao.observeAll().map { list -> mergedEntities(list).map { it.toDefinition() } }
 
     suspend fun enabledTools(): List<ToolDefinition> =
-        toolDao.enabledTools().map { it.toDefinition() }
+        mergedEntities(toolDao.observeAll().first())
+            .filter { it.enabled }
+            .map { it.toDefinition() }
+
+    /**
+     * 代码里的内置工具与库里记录合并：库里缺的、插入失败的，一律以代码定义补齐（默认启用）。
+     * 这样即使升级后初始化没跑完，新工具也不会"消失"，模型和工具页都看得见。
+     */
+    private fun mergedEntities(entities: List<ToolEntity>): List<ToolEntity> {
+        val defs = defaults()
+        val byName = entities.associateBy { it.name }
+        val builtin = defs.map { def ->
+            val existing = byName[def.name]
+            if (existing != null) def.toEntity().copy(enabled = existing.enabled) else def.toEntity()
+        }
+        val extras = entities.filter { !it.builtin && it.name !in defs.map { def -> def.name }.toSet() }
+        return builtin + extras
+    }
 
     suspend fun byName(name: String): ToolDefinition? =
         toolDao.byName(name)?.toDefinition()
@@ -47,13 +64,18 @@ class ToolRegistry(
         val defaults = defaults()
         val defaultNames = defaults.map { it.name }.toSet()
         defaults.forEach { def ->
-            val existing = toolDao.byName(def.name)
-            if (existing == null) {
-                toolDao.upsert(def.toEntity())
-            } else if (existing.builtin) {
-                toolDao.upsert(def.toEntity().copy(enabled = existing.enabled))
+            runCatching {
+                val existing = toolDao.byName(def.name)
+                if (existing == null) {
+                    toolDao.upsert(def.toEntity())
+                } else if (existing.builtin) {
+                    toolDao.upsert(def.toEntity().copy(enabled = existing.enabled))
+                }
+            }.onFailure { e ->
+                com.phoneagent.util.AppLog.error("tool", "写入内置工具失败：" + def.name, e)
             }
         }
+        com.phoneagent.util.AppLog.info("tool", "内置工具同步完成，共 " + defaults.size + " 个")
         // 清理代码中已移除的内置工具（如旧版 curl_exec），保留用户自定义工具
         toolDao.observeAll().first().forEach { entity ->
             if (entity.builtin && entity.name !in defaultNames) {

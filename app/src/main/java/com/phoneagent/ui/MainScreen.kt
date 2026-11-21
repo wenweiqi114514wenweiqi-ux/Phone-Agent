@@ -87,8 +87,9 @@ fun MainScreen() {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     // 左上角「文件」入口：只看当前会话的交付文件
     var showFiles by rememberSaveable { mutableStateOf(false) }
-    // 离开设置页时给设置页发一次归位信号（见 SettingsScreen.resetSignal）
-    var settingsReset by remember { mutableIntStateOf(0) }
+    // 设置页当前停在哪一级（0 = 主菜单）。由这里持有，切标签时直接归零，
+    // 不依赖设置页自己在"退出组合"时做副作用——那一帧 effect 会被取消。
+    var settingsPage by rememberSaveable { mutableIntStateOf(0) }
     var conversationId by rememberSaveable {
         mutableStateOf(container.settings.lastConversationId.ifBlank { "default" })
     }
@@ -216,7 +217,7 @@ fun MainScreen() {
                             onClick = {
                                 if (index != selected) {
                                     // 设置页要回到主菜单；文件覆盖层不该跟着换页留下来
-                                    if (selected == tabs.lastIndex) settingsReset++
+                                    if (selected == tabs.lastIndex) settingsPage = 0
                                     showFiles = false
                                     selected = index
                                 }
@@ -265,8 +266,8 @@ fun MainScreen() {
                     2 -> ToolsScreen(container = container)
                     else -> SettingsScreen(
                         container = container,
-                        active = selected == index,
-                        resetSignal = settingsReset,
+                        page = settingsPage,
+                        onPageChange = { settingsPage = it },
                     )
                 }
                 }

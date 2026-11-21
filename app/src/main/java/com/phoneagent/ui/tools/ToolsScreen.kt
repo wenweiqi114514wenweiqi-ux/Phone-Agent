@@ -50,7 +50,8 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
     var query by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(setOf<String>()) }
+    // 默认全展开：新加的工具（如 file_zip）不能被藏在折叠分组里
+    var collapsed by remember { mutableStateOf(setOf<String>()) }
 
     val searching = query.isNotBlank()
     val filtered = if (!searching) tools else tools.filter {
@@ -124,15 +125,15 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
         }
 
         groups.forEach { (label, list) ->
-            val open = searching || expanded.contains(label)
+            val open = searching || !collapsed.contains(label)
             item(key = "hdr_$label") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
                             if (!searching) {
-                                expanded =
-                                    if (expanded.contains(label)) expanded - label else expanded + label
+                                collapsed =
+                                    if (collapsed.contains(label)) collapsed - label else collapsed + label
                             }
                         }
                         .padding(top = 8.dp, start = 4.dp, end = 4.dp, bottom = 2.dp),
