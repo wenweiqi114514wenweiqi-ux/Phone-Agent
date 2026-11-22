@@ -13,6 +13,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +91,7 @@ private const val PAGE_LOGS = 11
 private const val PAGE_PRIVACY = 12
 private const val PAGE_TERMS = 13
 private const val PAGE_UPDATE = 14
+private const val PAGE_TEST_COMPONENTS = 15
 
 private fun pageTitle(page: Int): String = when (page) {
     PAGE_PERMISSION -> "后台与保活"
@@ -106,6 +108,7 @@ private fun pageTitle(page: Int): String = when (page) {
     PAGE_PRIVACY -> "隐私声明"
     PAGE_TERMS -> "使用条款"
     PAGE_UPDATE -> "版本更新"
+    PAGE_TEST_COMPONENTS -> "测试组件"
     else -> "设置"
 }
 
@@ -178,6 +181,10 @@ fun SettingsScreen(
                     PAGE_PRIVACY -> PrivacySettingsPage()
                     PAGE_TERMS -> TermsSettingsPage()
                     PAGE_UPDATE -> UpdateSettingsPage(container)
+                    PAGE_TEST_COMPONENTS -> TestComponentsPage(
+                        container = container,
+                        onOpenExecution = { go(PAGE_CHANNEL) },
+                    )
                     else -> AboutSettingsPage(
                         container = container,
                         onOpenPrivacy = { go(PAGE_PRIVACY) },
@@ -401,6 +408,14 @@ private fun SettingsHome(
             onClick = { onOpen(PAGE_FEATURES) },
         )
 
+        GroupLabel("测试性功能")
+        SectionEntry(
+            icon = Icons.Filled.Build,
+            title = "测试组件",
+            summary = "Python 运行时 · 自动准备 · 实验性能力",
+            onClick = { onOpen(PAGE_TEST_COMPONENTS) },
+        )
+
         GroupLabel("其它")
         SectionEntry(
             icon = Icons.AutoMirrored.Filled.List,
@@ -477,15 +492,16 @@ private fun SectionEntry(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         onClick = onClick,
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             leadingContent = {
                 Surface(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                    color = MaterialTheme.colorScheme.primaryContainer,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.size(40.dp),
                 ) {
@@ -493,7 +509,7 @@ private fun SectionEntry(
                         Icon(
                             icon,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -563,8 +579,9 @@ internal fun SettingsCard(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(vertical = 4.dp), content = content)
     }
@@ -582,7 +599,7 @@ internal fun CardTitle(text: String, trailing: String? = null) {
             Text(
                 trailing,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
             )
         }
     }

@@ -78,8 +78,8 @@ import java.io.File
  * 应用内文件预览器。
  *
  * 独立 Activity：横屏/全屏/系统返回/旋转都不影响主界面。
- * 目前支持 文本（TXT/JSON/XML/CSV/代码）、Markdown、HTML、图片；
- * 其余类型（Office、音视频）在后续版本接入，当前统一引导「用其他应用打开」。
+ * 支持 文本、Markdown、HTML、图片；Office（含旧版 .doc/.xls/.ppt）；
+ * 音频与视频；其余类型引导「用其他应用打开」。
  */
 class FilePreviewActivity : ComponentActivity() {
 
@@ -128,17 +128,51 @@ class FilePreviewActivity : ComponentActivity() {
     }
 }
 
-private enum class PreviewKind { TEXT, MARKDOWN, HTML, IMAGE, OFFICE, UNSUPPORTED }
+private enum class PreviewKind {
+    TEXT,
+    MARKDOWN,
+    HTML,
+    IMAGE,
+    OFFICE,
+    LEGACY_WORD,
+    LEGACY_SHEET,
+    LEGACY_SLIDE,
+    AUDIO,
+    VIDEO,
+    UNSUPPORTED,
+}
+
+private val PreviewKind.isOffice: Boolean
+    get() = this == PreviewKind.OFFICE ||
+        this == PreviewKind.LEGACY_WORD ||
+        this == PreviewKind.LEGACY_SHEET ||
+        this == PreviewKind.LEGACY_SLIDE
+
+private val PreviewKind.isMedia: Boolean
+    get() = this == PreviewKind.AUDIO || this == PreviewKind.VIDEO
 
 private fun detectKind(name: String, mime: String): PreviewKind {
     val ext = name.substringAfterLast('.', "").lowercase()
+    val m = mime.lowercase()
     return when {
-        mime == "text/markdown" || ext == "md" || ext == "markdown" -> PreviewKind.MARKDOWN
-        mime == "text/html" || ext == "html" || ext == "htm" -> PreviewKind.HTML
-        mime.startsWith("image/") || ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp") ->
+        m == "text/markdown" || ext == "md" || ext == "markdown" -> PreviewKind.MARKDOWN
+        m == "text/html" || ext == "html" || ext == "htm" -> PreviewKind.HTML
+        m.startsWith("image/") || ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp") ->
             PreviewKind.IMAGE
-        ext in setOf("docx", "xlsx", "pptx", "odt", "ods", "odp") -> PreviewKind.OFFICE
-        mime.startsWith("text/") || ext in setOf(
+        m.startsWith("video/") || ext in setOf("mp4", "m4v", "mkv", "webm", "3gp", "mov", "avi", "wmv", "flv") ->
+            PreviewKind.VIDEO
+        m.startsWith("audio/") || ext in setOf("mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus", "amr", "mid", "midi") ->
+            PreviewKind.AUDIO
+        ext in setOf("docx", "pptx", "odt", "odp") -> PreviewKind.OFFICE
+        ext == "doc" || m == "application/msword" -> PreviewKind.LEGACY_WORD
+        ext in setOf("xlsx", "xls", "ods", "csv") ||
+            m == "application/vnd.ms-excel" ||
+            m == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+            m == "application/vnd.oasis.opendocument.spreadsheet" ||
+            m == "text/csv" ||
+            m == "application/csv" -> PreviewKind.LEGACY_SHEET
+        ext == "ppt" || m == "application/vnd.ms-powerpoint" -> PreviewKind.LEGACY_SLIDE
+        m.startsWith("text/") || ext in setOf(
             "txt", "log", "json", "xml", "csv", "yml", "yaml", "ini", "conf", "sh",
             "kt", "java", "py", "js", "ts", "css", "sql", "toml", "gradle", "properties",
         ) -> PreviewKind.TEXT
@@ -201,7 +235,7 @@ private fun PreviewScreen(
                 }
             },
             actions = {
-                if (kind == PreviewKind.OFFICE) {
+                if (kind.isOffice || kind.isMedia) {
                     IconButton(onClick = { openExternal(ctx, file, mime) }) {
                         Icon(Icons.Filled.Share, contentDescription = "用其他应用打开")
                     }
@@ -238,6 +272,29 @@ private fun PreviewScreen(
                     file = file,
                     name = name,
                     mime = mime,
+                )
+                PreviewKind.LEGACY_WORD -> LegacyWordPreview(
+                    file = file,
+                    onOpenExternal = { openExternal(ctx, file, mime) },
+                )
+                PreviewKind.LEGACY_SHEET -> SheetPreview(
+                    file = file,
+                    name = name,
+                    mime = mime,
+                )
+                PreviewKind.LEGACY_SLIDE -> LegacySlidePreview(
+                    file = file,
+                    onOpenExternal = { openExternal(ctx, file, mime) },
+                )
+                PreviewKind.AUDIO -> AudioPreview(
+                    file = file,
+                    name = name,
+                    onOpenExternal = { openExternal(ctx, file, mime) },
+                )
+                PreviewKind.VIDEO -> VideoPreview(
+                    file = file,
+                    name = name,
+                    onOpenExternal = { openExternal(ctx, file, mime) },
                 )
                 PreviewKind.UNSUPPORTED -> UnsupportedPreview(
                     name = name,
@@ -473,6 +530,19 @@ private fun MarkdownPreview(file: File) {
     }
 }
 
+/** 所有表格（xls / xlsx / ods / csv）：统一交给内置 SheetJS 页面渲染。 */
+@Composable
+private fun SheetPreview(file: File, name: String, mime: String) {
+    val isCsv = name.substringAfterLast('.', "").equals("csv", true)
+    OfficePreview(
+        file = file,
+        name = name,
+        mime = mime.ifBlank { if (isCsv) "text/csv" else "application/vnd.ms-excel" },
+        page = "office/sheet.html",
+        mode = if (isCsv) "csv" else "sheet",
+    )
+}
+
 /**
  * Office（docx / xlsx / pptx / odt / ods / odp）：内置 Universal File Preview 离线引擎。
  *
@@ -480,7 +550,13 @@ private fun MarkdownPreview(file: File) {
  * 页面里的 fetch 直接读字节，内存只占一份。引擎署名见页面顶部与「关于 → 开源许可」。
  */
 @Composable
-private fun OfficePreview(file: File, name: String, mime: String) {
+private fun OfficePreview(
+    file: File,
+    name: String,
+    mime: String,
+    page: String = "office/index.html",
+    mode: String = "sheet",
+) {
     val bg = MaterialTheme.colorScheme.background
     val fg = MaterialTheme.colorScheme.onBackground
     val hexBg = bg.toHex()
@@ -567,9 +643,9 @@ private fun OfficePreview(file: File, name: String, mime: String) {
                         return true
                     }
                 }
-                val url = "https://appassets.androidplatform.net/assets/office/index.html" +
+                val url = "https://appassets.androidplatform.net/assets/$page" +
                     "?f=$token&name=${android.net.Uri.encode(name)}&mime=${android.net.Uri.encode(mime)}" +
-                    "&bg=$hexBg&fg=$hexFg"
+                    "&mode=$mode&bg=$hexBg&fg=$hexFg"
                 loadUrl(url)
             }
         },
@@ -703,12 +779,12 @@ private fun UnsupportedPreview(name: String, onOpenExternal: () -> Unit) {
             Text(
                 "这个格式暂时还不能内置预览",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                "旧版 Office（.doc / .xls / .ppt）与音视频（音视频在 1.0.14 之后接入）暂不支持",
+                "可以用系统里已安装的应用打开原文件。",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                 modifier = Modifier.padding(top = 8.dp),
             )
             TextButton(onClick = onOpenExternal, modifier = Modifier.padding(top = 4.dp)) {

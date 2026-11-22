@@ -1,5 +1,6 @@
 package com.phoneagent.ui.tools
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -79,7 +81,7 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     Text(
                         "$enabledCount/${tools.size} 已启用",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                     )
                 }
                 val zipNames = tools.count { it.name == "file_zip" || it.name == "file_unzip" || it.name == "file_zip_list" }
@@ -90,7 +92,7 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                         " · 文档 " + (if (docNames > 0) "就绪（" + docNames + "/3）" else "缺失"),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (zipNames > 0 && docNames > 0) {
-                        MaterialTheme.colorScheme.outline
+                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f)
                     } else {
                         MaterialTheme.colorScheme.error
                     },
@@ -98,7 +100,7 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 Text(
                     "点分组标题可展开/收起；列表由代码内置定义直接合并，不依赖数据库",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                 )
             }
         }
@@ -110,6 +112,15 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
                 singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                ),
                 placeholder = { Text("搜索工具名或功能，如 截图 / ocr / 记忆") },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -131,7 +142,7 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                 Text(
                     "没有匹配的工具。",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                     modifier = Modifier.padding(vertical = 16.dp, horizontal = 4.dp),
                 )
             }
@@ -167,7 +178,7 @@ fun ToolsScreen(container: AppContainer, modifier: Modifier = Modifier) {
                     Text(
                         text = if (searching) "搜索中" else if (open) "收起" else "展开",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                     )
                 }
             }
@@ -197,8 +208,9 @@ private fun ToolCard(tool: ToolDefinition, onToggle: (Boolean) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
@@ -229,7 +241,7 @@ private fun ToolCard(tool: ToolDefinition, onToggle: (Boolean) -> Unit) {
                 Text(
                     text = tool.description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             },
             trailingContent = { Switch(checked = tool.enabled, onCheckedChange = onToggle) },

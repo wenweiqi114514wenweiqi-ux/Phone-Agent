@@ -93,6 +93,16 @@ class SettingsRepository(context: Context) {
         get() = prefs.getBoolean("keepalive_enabled", false)
         set(value) = prefs.edit().putBoolean("keepalive_enabled", value).apply()
 
+    /** 测试组件：需要时自动准备 Python 运行时（默认开）。 */
+    var testComponentsAuto: Boolean
+        get() = prefs.getBoolean(KEY_TEST_AUTO, true)
+        set(value) = prefs.edit().putBoolean(KEY_TEST_AUTO, value).apply()
+
+    /** 最近一次自检通过的 Python 版本，仅用于界面展示。 */
+    var testPythonVersion: String
+        get() = prefs.getString(KEY_TEST_PY_VERSION, "")!!
+        set(value) = prefs.edit().putString(KEY_TEST_PY_VERSION, value).apply()
+
     var aiPersona: String
         get() = prefs.getString(KEY_AI_PERSONA, "")!!
         set(value) = prefs.edit().putString(KEY_AI_PERSONA, value).apply()
@@ -162,6 +172,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_LAST_CHECK_AT = "last_update_check_at"
         private const val KEY_UPDATE_CACHE = "update_cache_json"
         private const val KEY_UPDATE_ETAG = "update_cache_etag"
+        private const val KEY_TEST_AUTO = "test_components_auto"
+        private const val KEY_TEST_PY_VERSION = "test_python_version"
 
         /** 可选上下文长度（token）。 */
         val CONTEXT_OPTIONS: List<Int> = listOf(

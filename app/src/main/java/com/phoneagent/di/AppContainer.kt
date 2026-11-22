@@ -2,6 +2,7 @@ package com.phoneagent.di
 
 import android.content.Context
 import com.phoneagent.agent.AgentController
+import com.phoneagent.component.TestComponentManager
 import com.phoneagent.data.AppDatabase
 import com.phoneagent.data.AppearanceRepository
 import com.phoneagent.data.ModelRepository
@@ -38,6 +39,8 @@ class AppContainer(context: Context) {
     val toolParser: ToolParser = ToolParser(toolRegistry)
     val shizukuManager: ShizukuManager = ShizukuManager(appContext)
     val memoryRepository: MemoryRepository = MemoryRepository(database.memoryDao())
+    val testComponents: TestComponentManager =
+        TestComponentManager(appContext, settings, shizukuManager)
     val executor: CommandExecutor = ShizukuExecutor(
         shizukuManager,
         toolParser,
@@ -45,6 +48,7 @@ class AppContainer(context: Context) {
         appContext,
         memoryRepository,
         settings,
+        testComponents,
     )
     val llmGateway: LlmGateway = OpenAiChatClient()
     val modelsClient: ModelsClient = ModelsClient()
@@ -60,6 +64,7 @@ class AppContainer(context: Context) {
         logDao = database.logDao(),
         artifactDao = database.artifactDao(),
         modelRepo = modelRepository,
+        testComponents = testComponents,
     )
 
     /** 应用启动时初始化：写入内置默认工具集（幂等）。 */

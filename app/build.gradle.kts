@@ -16,7 +16,7 @@ android {
         // 目标机型 OPPO Find X9 / Android 17(API 37)：
         // 骨架阶段先对齐 API 36 保证构建稳定，API 37 正式版发布后升 compileSdk/targetSdk。
         targetSdk = 36
-        versionCode = 76
+        versionCode = 83
         versionName = "1.0.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -25,6 +25,9 @@ android {
 
     buildTypes {
         release {
+            // 本机分发沿用既有 debug 签名，保证老版本可直接覆盖安装、保留数据。
+            // 上架应用商店前必须替换为独立 release keystore。
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -78,4 +81,6 @@ dependencies {
 
     // OCR 文字识别（ML Kit，离线本地识别，支持中文+拉丁）
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+
+    testImplementation("junit:junit:4.13.2")
 }

@@ -13,6 +13,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -34,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -187,14 +190,17 @@ fun MainScreen() {
 
     Scaffold(
         modifier = Modifier.imePadding(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            // 背景由外层 Box 直接铺色：M3 的 TopAppBar 内部对容器色做 animateColorAsState，
-            // 主题一换它就会带着旧色补一段动画（切深浅色时"顶栏慢半拍"就是这个）。
-            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+            // 顶栏与页面同底色，不再固定用 surface：自定义背景后整块界面是连续的。
+            Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
             CenterAlignedTopAppBar(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
                 title = { Text(tabs[selected].title, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
@@ -219,21 +225,38 @@ fun MainScreen() {
         },
         bottomBar = {
             if (!keyboardOpen) {
-                NavigationBar {
-                    tabs.forEachIndexed { index, tab ->
-                        NavigationBarItem(
-                            selected = selected == index,
-                            onClick = {
-                                if (index != selected) {
-                                    // 设置页要回到主菜单；文件覆盖层不该跟着换页留下来
-                                    if (selected == tabs.lastIndex) settingsPage = 0
-                                    showFiles = false
-                                    selected = index
-                                }
-                            },
-                            icon = { Icon(tab.icon, contentDescription = tab.title) },
-                            label = { Text(tab.title) },
-                        )
+                Column {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        contentColor = MaterialTheme.colorScheme.onBackground,
+                        tonalElevation = 0.dp,
+                    ) {
+                        tabs.forEachIndexed { index, tab ->
+                            NavigationBarItem(
+                                selected = selected == index,
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.onBackground,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
+                                    unselectedTextColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
+                                ),
+                                onClick = {
+                                    if (index != selected) {
+                                        // 设置页要回到主菜单；文件覆盖层不该跟着换页留下来
+                                        if (selected == tabs.lastIndex) settingsPage = 0
+                                        showFiles = false
+                                        selected = index
+                                    }
+                                },
+                                icon = { Icon(tab.icon, contentDescription = tab.title) },
+                                label = { Text(tab.title) },
+                            )
+                        }
                     }
                 }
             }

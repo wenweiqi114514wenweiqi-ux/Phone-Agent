@@ -133,8 +133,10 @@ fun ArtifactsPage(
 private fun ArtifactRow(artifact: ArtifactEntity, onClick: () -> Unit) {
     val ext = artifact.name.substringAfterLast('.', "").uppercase().ifBlank { "FILE" }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Row(

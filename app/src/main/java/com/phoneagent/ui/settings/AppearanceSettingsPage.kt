@@ -1,6 +1,7 @@
 package com.phoneagent.ui.settings
 
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +30,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,11 +44,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.phoneagent.data.AppearanceRepository
 import com.phoneagent.di.AppContainer
+import com.phoneagent.ui.theme.colorContrast
 
 /**
  * 个性化：主色 / 圆角 / 深浅 / 字号 / 动态取色，改动即时生效。
@@ -209,11 +214,110 @@ fun AppearanceSettingsPage(container: AppContainer) {
                 onReset = { repo.update { it.copy(tertiaryCustom = 0L) } },
             )
             Text(
-                "自定义底色后，正文颜色会按底色亮度自动反转，保证可读；辅助色与强调色可单独配，用来做层次区分。",
+                "改底色时，正文、卡片、次要文字和代码块会按对比度自动推导；顶栏与底部导航也会跟随背景，不再停在黑色。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
+        }
+
+        // ---- 协调检查：把“看起来怪”变成可量化的问题 ----
+        val cs = MaterialTheme.colorScheme
+        val textRatio = colorContrast(cs.onBackground, cs.background)
+        val cardRatio = colorContrast(cs.onSurface, cs.surface)
+        val layerRatio = colorContrast(cs.surface, cs.background)
+        val readable = textRatio >= 4.5f && cardRatio >= 4.5f
+        CardTitle("协调检查", if (readable) "可读" else "偏低")
+        SettingsCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "页面正文 ${"%.1f".format(textRatio)}:1 · 卡片正文 ${"%.1f".format(cardRatio)}:1",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = cs.onSurface,
+                )
+                Text(
+                    text = if (readable) {
+                        "正文对比度达到 4.5:1，符合常用可读性标准。"
+                    } else {
+                        "当前组合对比度偏低，正文可能看不清。换一个更深的背景，或让面板色自动协调。"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (readable) cs.onSurfaceVariant else cs.error,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+                if (layerRatio < 1.14f) {
+                    Text(
+                        text = "背景和面板几乎同色，卡片会和页面糊在一起。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.error,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+
+                // 用真实主题色画一块“正文 + 次要文字 + 代码 + 按钮”的样张
+                Surface(
+                    color = cs.surface,
+                    shape = MaterialTheme.shapes.large,
+                    border = BorderStroke(1.dp, cs.outlineVariant),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            "正文示例：这是模型回答里的一段普通文字。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = cs.onSurface,
+                        )
+                        Text(
+                            "次要说明 · 用时 2.4s · 24 tok",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                        Surface(
+                            color = cs.surfaceVariant,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) {
+                            Text(
+                                "print(\"Hello, World!\")",
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                                color = cs.onSurface,
+                                modifier = Modifier.padding(10.dp),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(onClick = {}) { Text("主按钮") }
+                            OutlinedButton(onClick = {}) { Text("次按钮") }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val harmonized = lerp(cs.background, cs.onBackground, 0.10f)
+                            repo.update { it.copy(surfaceCustom = harmonized.toArgb().toLong()) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("自动协调面板") }
+                    OutlinedButton(
+                        onClick = { repo.update { it.copy(backgroundCustom = 0L, surfaceCustom = 0L) } },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("重置底色") }
+                }
+                Text(
+                    "顶栏、底栏与状态栏图标都会跟随背景自动切换深浅，不需要再单独设置。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
 
         // ---- 圆角 ----

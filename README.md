@@ -4,7 +4,7 @@ PhoneAgent 是一个完全运行在 Android 手机本地的 AI 助手。用户�
 
 不需要服务器、电脑或常驻 ADB。安装 APK、授权 Shizuku 或 Root、填写模型 API Key 即可使用。
 
-> 当前版本：**1.0.15**（versionCode 76）
+> 当前版本：**1.0.15**（versionCode 83）
 > 本仓库与其它同名项目无关，代码与实现均为独立完成。
 
 ---
@@ -119,11 +119,15 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 ## 版本
 
-**1.0.15** 的主要变化：
+**1.0.15 正式版** 的主要变化：
 
 - 新增原生 Office 工具：`doc_write`、`sheet_write`、`ppt_write`、`sheet_read`
 - 新增压缩工具：`file_zip`、`file_unzip`、`file_zip_list`
 - 新增 Office 三格式内置预览；修复预览页取文件 404
+- 新增「测试性功能 → Python 组件」：内置离线 Python 3.14.10（arm64），首次执行 `python3` 自动准备，不联网下载依赖
+- 表格预览统一：CSV / XLS / XLSX / ODS 使用同一个表格页，支持 UTF-8 / GB18030、多工作表、合并单元格，只渲染实际数据范围
+- DOCX 手机端自适应：窄屏不再按 A4 固定宽度渲染，正文铺满屏幕
+- 会话页重做：页头统计、标题搜索、按今天/昨天/日期分组、当前会话标记、最后一条消息预览
 - 修复设置二级页返回跳顶、文件覆盖页残留、顶栏换主题慢半拍
 - 修复跨对话记忆串扰、xlsx 结构错误、zip 多套一层目录、docx 文本转义
 - 优化 AI 输出与工具使用：步数上限提高、任务清单、收尾策略、提交前体检、自动补卡
@@ -134,8 +138,10 @@ echo "sdk.dir=/path/to/Android/Sdk" > local.properties
 
 - 不做无障碍 UI 自动化，无法逐屏点按第三方 App 界面；跨 App 操作依赖 HTTP、网页抓取、OCR 或 shell 指令
 - Office 生成对复杂排版、图表、公式、多工作表联动、母版样式的支持有限，重要文档建议使用办公软件复核
-- 音视频暂无内置预览；PDF 暂无内置渲染
-- 组件商店目前只有入口，没有内容
+- 旧版 `.doc` / `.ppt` 的生成仍需要 LibreOffice 等转换器，内置测试组件不解决
+- 统一表格预览以内容和结构为主，不保留复杂单元格底色、特殊字体和图表
+- PDF 暂无内置渲染；音视频使用应用内播放器打开
+- 测试组件目前只有 Python 3.14（arm64），FFmpeg 尚未提供
 - Beta 与正式版共用包名 `com.phoneagent`，无法同时安装；系统仅允许升级到更高 versionCode
 
 ## 免责声明

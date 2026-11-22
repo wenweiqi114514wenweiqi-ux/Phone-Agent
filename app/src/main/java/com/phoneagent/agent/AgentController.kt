@@ -15,6 +15,7 @@ import com.phoneagent.llm.LlmConfig
 import com.phoneagent.llm.LlmGateway
 import com.phoneagent.llm.ToolSpec
 import com.phoneagent.data.ModelRepository
+import com.phoneagent.component.TestComponentManager
 import com.phoneagent.memory.MemoryRepository
 import com.phoneagent.tools.Decision
 import com.phoneagent.tools.ParsedCommand
@@ -56,6 +57,7 @@ class AgentController(
     private val logDao: LogDao,
     private val artifactDao: com.phoneagent.data.ArtifactDao? = null,
     private val modelRepo: ModelRepository,
+    private val testComponents: TestComponentManager? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -986,6 +988,7 @@ class AgentController(
 
     private fun buildSystemPrompt(memoryBlock: String, checklist: String = ""): String = buildString {
         append(SYSTEM_PROMPT)
+        testComponents?.promptBlock()?.takeIf { it.isNotBlank() }?.let { append(it) }
         if (checklist.isNotBlank()) {
             append("\n\n## 用户这条消息里明确列出的步骤（必须全部完成）\n")
             append(checklist)
@@ -1079,6 +1082,8 @@ class AgentController(
             - 系统属性(sys_getprop)、电池(sys_battery)、日志(logcat)
             - 网络：HTTP请求(http_get/http_post)、网页正文抓取(web_fetch)、下载文件(file_download)、ping、netstat、DNS解析(dns_lookup)
             - web_fetch(url)：抓网页正文纯文本，比 http_get 干净得多，读文章/文档/百科优先用它；http_get 仅在需要原始 JSON/HTML 时用
+            - 需要 Python 时直接写 python3 脚本交给 shell_exec；App 的测试组件会自动准备 python3，不要用 printf/echo 逐字节拼 PCM 或二进制，也不要先 which 探测。
+            - 测试组件没准备好时，先继续做不依赖 Python 的部分，并在结果里说明「等待组件准备」，不要自己下载或安装 Python/FFmpeg。
             ### 设置与设备
             - 读取设置(settings_get)、修改设置(settings_put/settings_put_global)
             - 重启(reboot)、任意shell命令(shell_exec)

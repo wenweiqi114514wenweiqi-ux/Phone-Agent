@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
+  <title>表格预览</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #16181d;
+      --muted: rgba(90, 98, 112, 0.78);
+      --line: rgba(110, 120, 135, 0.26);
+      --head: rgba(110, 120, 135, 0.10);
+      --band: rgba(110, 120, 135, 0.045);
+      --accent: #2563eb;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: -apple-system, "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
+      font-size: 13px;
+      -webkit-text-size-adjust: 100%;
+    }
+    body { padding-bottom: 28px; }
+
+    #bar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+      font-size: 11px;
+      color: var(--muted);
+    }
+    #meta {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+    #credit { flex: none; opacity: 0.75; }
+
+    #doc-status {
+      padding: 9px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #tabs {
+      display: flex;
+      overflow-x: auto;
+      padding: 0 8px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+      scrollbar-width: none;
+    }
+    #tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      flex: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      padding: 9px 12px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .tab[aria-selected="true"] {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+
+    #status {
+      margin: 14px 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    #viewer { padding: 10px 10px 28px; }
+
+    .table-meta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 2px 4px 8px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .table-meta .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .table-meta .clip { flex: none; }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--bg);
+      -webkit-overflow-scrolling: touch;
+    }
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: max-content;
+      min-width: 100%;
+      font-size: 13px;
+      table-layout: auto;
+    }
+    th, td {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 7px 10px;
+      text-align: left;
+      vertical-align: top;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-width: 320px;
+      min-width: 48px;
+      background: var(--bg);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 500;
+    }
+    thead th {
+      text-align: center;
+      background: var(--head);
+      font-weight: 500;
+    }
+    tbody th {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      min-width: 40px;
+      max-width: 48px;
+      text-align: right;
+      background: var(--head);
+      color: var(--muted);
+      font-weight: 400;
+    }
+    thead th.corner {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: var(--head);
+    }
+    tbody tr:first-child td {
+      font-weight: 600;
+      background: var(--band);
+    }
+    tr:last-child td, tr:last-child th { border-bottom: none; }
+    td:last-child, th:last-child { border-right: none; }
+    .empty { color: var(--muted); padding: 20px 12px; }
+  </style>
+</head>
+<body>
+  <header id="bar">
+    <span id="meta">表格</span>
+    <span id="credit">Universal File Preview · MIT</span>
+  </header>
+  <div id="doc-status"></div>
+  <div id="tabs"></div>
+  <div id="status" style="display:none"></div>
+  <div id="viewer"></div>
+  <script src="sheet.js"></script>
+</body>
+</html>

@@ -1,5 +1,8 @@
 package com.phoneagent.ui.theme
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,9 +16,12 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -65,6 +71,18 @@ fun PhoneAgentTheme(
         appearance.dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         else -> buildScheme(appearance, dark)
+    }
+
+    // 状态栏 / 手势条是透明的，颜色由顶栏、底栏透上来；这里只负责图标明暗，
+    // 否则自定义浅色背景上仍是白色图标，等于看不见。
+    val barColor = colorScheme.background
+    val view = LocalView.current
+    SideEffect {
+        val activity = view.context.findActivity() ?: return@SideEffect
+        val controller = WindowCompat.getInsetsController(activity.window, view)
+        val lightIcons = barColor.luminance() > 0.5f
+        controller.isAppearanceLightStatusBars = lightIcons
+        controller.isAppearanceLightNavigationBars = lightIcons
     }
 
     val r = appearance.cornerDp.dp
@@ -132,33 +150,86 @@ private fun buildScheme(appearance: Appearance, dark: Boolean): ColorScheme {
         )
     }
 
-    // 自定义底色 / 面板色：直接覆盖对应角色，并按底色亮度自动选前景色，保证可读
-    if (appearance.backgroundCustom == 0L && appearance.surfaceCustom == 0L) return base
+    // 没动过任何颜色时，直接用 Material 默认方案，保持原生观感。
+    val anyCustomColor = appearance.backgroundCustom != 0L ||
+        appearance.surfaceCustom != 0L ||
+        appearance.accentCustom != 0L ||
+        appearance.secondaryCustom != 0L ||
+        appearance.tertiaryCustom != 0L
+    if (!anyCustomColor) return base
 
+    // 自定义底色 / 面板色：其余所有角色都从这里推导，不再让某些栏位停在旧颜色上。
     val bg = if (appearance.backgroundCustom != 0L) Color(appearance.backgroundCustom) else base.background
-    val sf = if (appearance.surfaceCustom != 0L) Color(appearance.surfaceCustom) else base.surface
-    val onBg = contrastOn(bg)
-    val onSf = contrastOn(sf)
-    val variant = if (dark) lerp(sf, Color.White, 0.12f) else lerp(sf, Color.Black, 0.07f)
+    val rawSurface = when {
+        appearance.surfaceCustom != 0L -> Color(appearance.surfaceCustom)
+        // 只改背景时，卡片跟着背景走一层，而不是继续用原来的纯白/纯黑
+        appearance.backgroundCustom != 0L -> lerp(bg, readableOn(bg), 0.06f)
+        else -> base.surface
+    }
+    val sf = separatedLayer(rawSurface, bg)
+    val onBg = readableOn(bg)
+    val onSf = readableOn(sf)
+
+    // 卡片内部的层级：全都基于「面板色 + 前景色」的明度阶梯，不再使用低透明度叠色。
+    fun layer(t: Float) = lerp(sf, onSf, t)
+    val variant = layer(0.075f)
+    val containerLowest = layer(0.025f)
+    val containerLow = layer(0.05f)
+    val container = layer(0.08f)
+    val containerHigh = layer(0.115f)
+    val containerHighest = layer(0.15f)
+
+    val primary = ensureContrast(seed, bg, 3.2f)
+    val primaryContainer = lerp(seed, bg, if (dark) 0.55f else 0.24f)
+    val secondary = ensureContrast(seed2, bg, 3.0f)
+    val secondaryContainer = lerp(seed2, bg, if (dark) 0.58f else 0.26f)
+    val tertiary = ensureContrast(seed3, bg, 3.0f)
+    val tertiaryContainer = lerp(seed3, bg, if (dark) 0.58f else 0.26f)
+    val error = ensureContrast(base.error, bg, 3.0f)
+    val errorContainer = lerp(base.error, bg, if (dark) 0.62f else 0.80f)
+
     return base.copy(
+        primary = primary,
+        onPrimary = readableOn(primary),
+        primaryContainer = primaryContainer,
+        onPrimaryContainer = readableOn(primaryContainer),
+        inversePrimary = ensureContrast(seed, onBg, 3.0f),
+        secondary = secondary,
+        onSecondary = readableOn(secondary),
+        secondaryContainer = secondaryContainer,
+        onSecondaryContainer = readableOn(secondaryContainer),
+        tertiary = tertiary,
+        onTertiary = readableOn(tertiary),
+        tertiaryContainer = tertiaryContainer,
+        onTertiaryContainer = readableOn(tertiaryContainer),
         background = bg,
         onBackground = onBg,
         surface = sf,
         onSurface = onSf,
         surfaceVariant = variant,
-        onSurfaceVariant = lerp(onSf, sf, 0.35f),
-        surfaceContainerLowest = lerp(sf, if (dark) Color.Black else Color.White, 0.08f),
-        surfaceContainerLow = lerp(sf, if (dark) Color.White else Color.Black, 0.03f),
-        surfaceContainer = base.surfaceContainer.let { if (appearance.surfaceCustom != 0L) variant else it },
-        surfaceContainerHigh = lerp(variant, if (dark) Color.White else Color.Black, 0.04f),
-        surfaceContainerHighest = lerp(variant, if (dark) Color.White else Color.Black, 0.08f),
-        outline = lerp(onSf, sf, 0.55f),
-        outlineVariant = lerp(onSf, sf, 0.75f),
+        onSurfaceVariant = ensureContrast(lerp(onSf, sf, 0.18f), sf, 3.0f),
+        surfaceTint = primary,
+        surfaceDim = layer(0.0f),
+        surfaceBright = lerp(sf, onSf, 0.20f),
+        surfaceContainerLowest = containerLowest,
+        surfaceContainerLow = containerLow,
+        surfaceContainer = container,
+        surfaceContainerHigh = containerHigh,
+        surfaceContainerHighest = containerHighest,
+        outline = ensureContrast(lerp(onSf, sf, 0.55f), sf, 1.8f),
+        outlineVariant = lerp(onSf, sf, 0.78f),
+        error = error,
+        onError = readableOn(error),
+        errorContainer = errorContainer,
+        onErrorContainer = readableOn(errorContainer),
         inverseSurface = onSf,
         inverseOnSurface = sf,
+        scrim = Color.Black,
     )
 }
 
-/** 按底色亮度给一个能读的前景色（不是纯黑/纯白，避免刺眼）。 */
-private fun contrastOn(color: Color): Color =
-    if (color.luminance() > 0.55f) Color(0xFF12141A) else Color(0xFFF0F1F6)
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}

@@ -3,6 +3,7 @@ package com.phoneagent.exec
 import com.phoneagent.tools.ParsedCommand
 import com.phoneagent.tools.ToolHandler
 import com.phoneagent.tools.ToolParser
+import com.phoneagent.component.TestComponentManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.addJsonObject
@@ -30,6 +31,7 @@ class ShizukuExecutor(
     private val context: android.content.Context,
     private val memoryRepo: com.phoneagent.memory.MemoryRepository,
     private val settings: com.phoneagent.data.SettingsRepository,
+    private val testComponents: TestComponentManager? = null,
 ) : CommandExecutor {
 
     override val isReady: Boolean
@@ -67,7 +69,14 @@ class ShizukuExecutor(
                         error = "无执行权限：请开启 Root（授权管理器允许本应用）或在设置页完成 Shizuku 授权",
                     )
                 }
-                execShell(parser.renderShell(command.tool, command.args))
+                val command = parser.renderShell(command.tool, command.args)
+                // 测试组件：模型写 python3 时先静默准备，准备好再执行；失败则照常返回 127 并加提示
+                if (testComponents?.isPythonCommand(command) == true &&
+                    testComponents.isReady().not()
+                ) {
+                    testComponents.ensurePython()
+                }
+                execShell(command)
             }
             ToolHandler.API -> execApi(command)
             ToolHandler.UI -> ExecResult(
@@ -106,11 +115,12 @@ class ShizukuExecutor(
     }
 
     private fun execShell(cmd: String): ExecResult {
+        val prepared = (testComponents?.shellEnvPrefix() ?: "") + cmd
         // 1) 优先 Root 通道（Magisk / KernelSU / APatch）
         if (RootShell.ensureDetected()) {
-            val raw = RootShell.exec(cmd)
+            val raw = RootShell.exec(prepared)
             return if (raw.startsWith("ERROR(") || raw.startsWith("EXCEPTION:")) {
-                ExecResult(ok = false, output = "", error = raw)
+                ExecResult(ok = false, output = "", error = withComponentHint(cmd, raw))
             } else {
                 ExecResult(ok = true, output = raw.ifBlank { "(执行成功，无输出)" })
             }
@@ -118,12 +128,19 @@ class ShizukuExecutor(
         // 2) 回退 Shizuku
         val svc = manager.shellService
             ?: return ExecResult(ok = false, output = "", error = "无 Root 且 Shizuku 未连接（请到设置页授权其一）")
-        val raw = svc.exec(cmd)
+        val raw = svc.exec(prepared)
         return if (raw.startsWith("ERROR(") || raw.startsWith("EXCEPTION:")) {
-            ExecResult(ok = false, output = "", error = raw)
+            ExecResult(ok = false, output = "", error = withComponentHint(cmd, raw))
         } else {
             ExecResult(ok = true, output = raw.trim())
         }
+    }
+
+    /** python3 找不到时，别让模型继续猜，直接告诉它测试组件在哪。 */
+    private fun withComponentHint(cmd: String, raw: String): String {
+        if (testComponents?.isPythonCommand(cmd) != true) return raw
+        if (!raw.contains("not found") && !raw.contains("No such file") && !raw.contains("127")) return raw
+        return raw + "\n\nPython 运行时还没就绪。App 会自动准备；可到「设置 → 测试性功能 → 测试组件」查看进度。"
     }
 
     /** 原生 API 工具：HTTP 请求、DNS 解析、OCR 识别等（无需 shell 权限，主进程直接执行）。 */

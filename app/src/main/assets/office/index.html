@@ -44,6 +44,30 @@
   }
   /* 文档纸面保持白底，看起来更像"纸"，四周留出深色画布 */
   #viewer :where(.ufp-viewer, .document, .page) { color-scheme: light; }
+
+  /* 手机端：不要按 A4 固定纸宽渲染，否则左右大量留白、正文被挤成每行几个字 */
+  @media (max-width: 720px) {
+    #viewer,
+    #viewer .ufp-root,
+    #viewer .ufp-content,
+    #viewer .ufp-word-document {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: 0 !important;
+      box-sizing: border-box !important;
+    }
+    #viewer .ufp-content { padding: 8px 6px 24px !important; overflow-x: hidden !important; }
+    #viewer .ufp-word-document { align-items: stretch !important; gap: 10px !important; }
+    #viewer .ufp-word-page {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-height: 0 !important;
+      padding: 24px 18px 34px !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+    }
+    #viewer .ufp-word-page p { line-height: 1.65; }
+  }
 </style>
 </head>
 <body>

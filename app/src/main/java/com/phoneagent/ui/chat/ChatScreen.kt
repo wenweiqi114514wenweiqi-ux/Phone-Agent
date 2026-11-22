@@ -18,6 +18,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -64,6 +65,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -298,11 +300,11 @@ fun ChatScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (groups.isEmpty() && !state.sending) {
-                item { GreetingCarousel() }
+                item { GreetingCarousel(onPick = { setInput(it) }) }
             }
             items(groups, key = { it.key }) { group ->
                 GroupRow(
@@ -403,12 +405,28 @@ fun ChatScreen(
             }
         }
 
+        // 底部输入坞：快捷设置、附件、输入框和发送键收在同一块面板里，
+        // 和页面的背景色分开层次，不再是一行行散落在背景上。
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            shape = RoundedCornerShape(
+                topStart = 22.dp,
+                topEnd = 22.dp,
+                bottomStart = 18.dp,
+                bottomEnd = 18.dp,
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            tonalElevation = 0.dp,
+        ) {
+        Column {
         // 快捷 chips 行
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FilterChip(
@@ -462,14 +480,14 @@ fun ChatScreen(
             Text(
                 text = "已排队 · 当前回答结束后自动发送",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                 modifier = Modifier.padding(start = 20.dp, bottom = 2.dp),
             )
         }
 
         // 输入行
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -485,7 +503,19 @@ fun ChatScreen(
                 },
                 // 打字时最多长到 6 行，超出内部滚动；回车即发送（和 ChatGPT 一致）
                 maxLines = 6,
-                shape = MaterialTheme.shapes.extraLarge,
+                shape = RoundedCornerShape(18.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.background,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.background,
+                    disabledContainerColor = MaterialTheme.colorScheme.background,
+                    focusedTextColor = MaterialTheme.colorScheme.onBackground,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onBackground,
+                    focusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    cursorColor = MaterialTheme.colorScheme.primary,
+                ),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = androidx.compose.ui.text.input.ImeAction.Send,
                 ),
@@ -543,10 +573,18 @@ fun ChatScreen(
                         }
                     },
                     enabled = input.isNotBlank() || attachments.isNotEmpty(),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                 }
             }
+        }
+        }
         }
     }
 
@@ -793,8 +831,10 @@ private fun UserBubble(msg: MessageEntity, onEdit: () -> Unit = {}) {
     Column(modifier = Modifier.fillMaxWidth()) {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             shape = bubbleShape(tailAtEnd = true),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth(0.88f),
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -840,7 +880,7 @@ private fun UserBubble(msg: MessageEntity, onEdit: () -> Unit = {}) {
             Icon(
                 Icons.Filled.Edit,
                 contentDescription = "重新输入",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                 modifier = Modifier.size(15.dp),
             )
         }
@@ -854,7 +894,7 @@ private fun MessageAction(text: String, onClick: () -> Unit) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
         modifier = Modifier
             .clickable { onClick() }
             .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -904,7 +944,7 @@ private fun AttachmentThumb(item: com.phoneagent.data.AttachmentMeta) {
         modifier = Modifier
             .size(92.dp)
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)),
+            .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         val bmp = bitmap
@@ -927,7 +967,7 @@ private fun AttachmentFileCard(item: com.phoneagent.data.AttachmentMeta) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -935,13 +975,13 @@ private fun AttachmentFileCard(item: com.phoneagent.data.AttachmentMeta) {
             modifier = Modifier
                 .size(34.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = extLabel(item.name),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -972,103 +1012,117 @@ private fun SystemLine(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.outline,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     )
 }
 
-/** 工具步骤：默认折叠为一行，点击展开明细。 */
+/** 工具步骤：一张独立的过程卡，默认折叠，点击展开明细。 */
 @Composable
 private fun StepsCollapsed(steps: List<MessageEntity>) {
     var expanded by remember { mutableStateOf(false) }
-    val okCount = steps.count { it.status == "ok" }
     val failed = steps.count { it.status == "error" || it.status == "refused" || it.status == "skipped" }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = buildString {
-                    append("已执行 ")
-                    append(steps.size)
-                    append(" 条命令")
-                    if (failed > 0) {
-                        append(" · ")
-                        append(failed)
-                        append(" 条失败")
-                    }
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = if (expanded) "收起" else "展开",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
-            Text(
-                text = if (expanded) "▴" else "▾",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.padding(start = 4.dp),
-            )
-        }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .background(
+                            if (failed > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            RoundedCornerShape(50),
+                        ),
+                )
+                Text(
+                    text = "执行记录 · ${steps.size} 步",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+                if (failed > 0) {
+                    Text(
+                        text = " · $failed 失败",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = if (expanded) "收起" else "展开",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = if (expanded) "▴" else "▾",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
 
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(animationSpec = tween(260)) + fadeIn(animationSpec = tween(200)),
-            exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(140)),
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp)) {
-                steps.forEachIndexed { index, step ->
-                    if (index > 0) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        )
-                    }
-                    val ok = step.status == "ok"
-                    val mark = when (step.status) {
-                        "ok" -> "✓"
-                        "skipped", "pending" -> "⤼"
-                        else -> "✕"
-                    }
-                    Row(verticalAlignment = Alignment.Top) {
-                        Text(
-                            text = mark,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = when {
-                                ok -> MaterialTheme.colorScheme.primary
-                                step.status == "skipped" || step.status == "pending" ->
-                                    MaterialTheme.colorScheme.outline
-                                else -> MaterialTheme.colorScheme.error
-                            },
-                        )
-                        Column(modifier = Modifier.padding(start = 8.dp)) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = tween(260)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(140)),
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    steps.forEachIndexed { index, step ->
+                        if (index > 0) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                        val ok = step.status == "ok"
+                        val mark = when (step.status) {
+                            "ok" -> "✓"
+                            "skipped", "pending" -> "⤼"
+                            else -> "✕"
+                        }
+                        Row(
+                            modifier = Modifier.padding(vertical = 7.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
                             Text(
-                                text = displayCommand(step),
-                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                                text = mark,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = when {
+                                    ok -> MaterialTheme.colorScheme.primary
+                                    step.status == "skipped" || step.status == "pending" ->
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    else -> MaterialTheme.colorScheme.error
+                                },
                             )
-                            val detail = step.result ?: step.content
-                            if (detail.isNotBlank() && detail != step.command) {
+                            Column(modifier = Modifier.padding(start = 8.dp)) {
                                 Text(
-                                    text = detail.trim().replace("\n", " ").take(80) +
-                                        if (detail.trim().length > 80) "…" else "",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
+                                    text = displayCommand(step),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(top = 2.dp),
                                 )
+                                val detail = step.result ?: step.content
+                                if (detail.isNotBlank() && detail != step.command) {
+                                    Text(
+                                        text = detail.trim().replace("\n", " ").take(80) +
+                                            if (detail.trim().length > 80) "…" else "",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -1108,6 +1162,32 @@ private fun AssistantBubble(
         },
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Agent 标识：让回答和普通聊天消息区分开，靠左对齐，形成固定阅读起点。
+            Row(
+                modifier = Modifier.padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "A",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = "Agent",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
             // 交付物卡片（助手提交的文件）
             val submitted = remember(msg.attachments) {
                 com.phoneagent.data.AttachmentCodec.decode(msg.attachments).filter { it.submitted }
@@ -1122,42 +1202,44 @@ private fun AssistantBubble(
                 MarkdownContent(msg.content, mdRadius)
             }
             if (!msg.reasoning.isNullOrBlank()) ReasoningCollapsed(msg.reasoning)
-            stats?.let { s ->
-                Text(
-                    text = buildString {
-                        append("用时 ")
-                        append(String.format(java.util.Locale.US, "%.1f", s.elapsedMs / 1000f))
-                        append("s · 输出 ")
-                        append(s.completionTokens)
-                        append(" tok")
-                        if (s.promptTokens > 0) {
-                            append(" · 输入 ")
-                            append(s.promptTokens)
-                            append(" tok")
-                        }
-                        if (s.estimated) append("（约）")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-            // 这条回答的操作：重新思考（只在这一轮结束后出现，流式中不显示）
-            if (msg.content.isNotBlank()) {
+            if (stats != null || msg.content.isNotBlank()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(
-                        onClick = onRegenerate,
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "重新思考",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-                            modifier = Modifier.size(15.dp),
+                    stats?.let { s ->
+                        Text(
+                            text = buildString {
+                                append("用时 ")
+                                append(String.format(java.util.Locale.US, "%.1f", s.elapsedMs / 1000f))
+                                append("s · 输出 ")
+                                append(s.completionTokens)
+                                append(" tok")
+                                if (s.promptTokens > 0) {
+                                    append(" · 输入 ")
+                                    append(s.promptTokens)
+                                    append(" tok")
+                                }
+                                if (s.estimated) append("（约）")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                            modifier = Modifier.weight(1f),
                         )
+                    } ?: Spacer(Modifier.weight(1f))
+                    // 这条回答的操作：重新思考（只在这一轮结束后出现，流式中不显示）
+                    if (msg.content.isNotBlank()) {
+                        IconButton(
+                            onClick = onRegenerate,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "重新思考",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1173,7 +1255,7 @@ private fun ReasoningCollapsed(reasoning: String) {
     }
     if (expanded) {
         Surface(
-            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+            color = MaterialTheme.colorScheme.tertiaryContainer,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.widthIn(max = 340.dp),
         ) {
@@ -1229,7 +1311,7 @@ private fun ThoughtPanel(thoughts: List<AgentThought>, showReasoning: Boolean) {
                     else -> "思考中…"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
@@ -1238,7 +1320,7 @@ private fun ThoughtPanel(thoughts: List<AgentThought>, showReasoning: Boolean) {
             Text(
                 text = reasoningText.trim().take(240),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
                 modifier = Modifier.padding(start = 13.dp, top = 4.dp),
             )
         }
@@ -1358,32 +1440,43 @@ private fun StreamingAnswer(text: String, mdRadius: Int) {
 @Composable
 private fun StreamingCodeBox(lang: String, code: String, radius: Int, open: Boolean) {
     Surface(
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(radius.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            if (lang.isNotBlank()) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = lang,
+                    text = lang.ifBlank { "代码" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
                 )
+                if (open) {
+                    Text(
+                        text = "生成中…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(
                 text = code,
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(14.dp),
             )
-            if (open) {
-                // 还在写：底部一个很淡的"还在继续"提示，不抢内容
-                Text(
-                    text = "…",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
         }
     }
 }
@@ -1408,7 +1501,7 @@ private fun ActionLine(text: String) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
         )
     }
 }
@@ -1417,8 +1510,9 @@ private fun ActionLine(text: String) {
  * 空状态：按当前时段轮播的问候句。
  * 切换动画为「模糊滚动」——新句从下方带着模糊升起并逐渐清晰，旧句向上带模糊淡出。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GreetingCarousel() {
+private fun GreetingCarousel(onPick: (String) -> Unit = {}) {
     val lines = remember {
         val hour = java.time.LocalTime.now().hour
         greetingLines(hour)
@@ -1437,39 +1531,71 @@ private fun GreetingCarousel() {
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxWidth().height(220.dp),
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (prev >= 0) {
-            val p = lines[prev % lines.size]
+        Text(
+            text = "PHONE AGENT",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Box(
+            modifier = Modifier.fillMaxWidth().height(150.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (prev >= 0) {
+                val p = lines[prev % lines.size]
+                Text(
+                    text = p,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.68f * (1f - anim.value)),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .graphicsLayer {
+                            translationY = -anim.value * 36f
+                            alpha = (1f - anim.value).coerceIn(0f, 1f)
+                        }
+                        .softBlur((1f - anim.value) * 9f),
+                )
+            }
             Text(
-                text = p,
+                text = lines[cur],
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f * (1f - anim.value)),
+                color = MaterialTheme.colorScheme.onBackground,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 20.dp)
                     .graphicsLayer {
-                        translationY = -anim.value * 36f
-                        alpha = (1f - anim.value).coerceIn(0f, 1f)
+                        translationY = (1f - anim.value) * 44f
+                        alpha = anim.value.coerceIn(0f, 1f)
                     }
-                    .softBlur((1f - anim.value) * 9f),
+                    .softBlur((1f - anim.value) * 10f),
             )
         }
         Text(
-            text = lines[cur],
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+            text = "可以让它读文件、跑命令、生成文档，也可以直接聊。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .graphicsLayer {
-                    translationY = (1f - anim.value) * 44f
-                    alpha = anim.value.coerceIn(0f, 1f)
-                }
-                .softBlur((1f - anim.value) * 10f),
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "看看这台手机",
+                "写个 Python 脚本",
+                "做一份 Word 文档",
+                "整理最近的文件",
+            ).forEach { prompt ->
+                AssistChip(onClick = { onPick(prompt) }, label = { Text(prompt) })
+            }
+        }
     }
 }
 
@@ -1998,7 +2124,7 @@ private fun ManageWorkspaceDialog(
                                 Icon(
                                     Icons.Filled.MoreVert,
                                     contentDescription = "更多",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                                 )
                             }
                             DropdownMenu(
@@ -2133,27 +2259,53 @@ private fun MarkdownContent(text: String, radius: Int) {
     }
 }
 
-/** 代码块：圆角卡片包裹，等宽字体，横向可滚动。 */
+/** 代码块：实色面板 + 细边框，语言栏与代码分开，避免和正文糊在一起。 */
 @Composable
 private fun MarkdownCode(code: MdSegment.Code, radius: Int) {
+    val ctx = LocalContext.current
     Surface(
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(radius.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            if (code.lang.isNotBlank()) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = code.lang,
+                    text = code.lang.ifBlank { "代码" },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "复制",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable {
+                            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("code", code.code))
+                            android.widget.Toast.makeText(ctx, "已复制代码", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        .padding(vertical = 2.dp, horizontal = 4.dp),
                 )
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(
                 text = code.code,
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(14.dp),
             )
         }
     }
@@ -2165,17 +2317,20 @@ private fun MarkdownTable(table: MdSegment.Table, radius: Int) {
     val cols = maxOf(table.header.size, table.rows.maxOfOrNull { it.size } ?: 0)
     if (cols == 0) return
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(radius.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
     ) {
-        Column(modifier = Modifier.padding(vertical = 2.dp)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant)) {
                 (0 until cols).forEach { c ->
                     Text(
                         text = table.header.getOrNull(c) ?: "",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 7.dp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 8.dp),
                     )
                 }
             }
@@ -2186,7 +2341,8 @@ private fun MarkdownTable(table: MdSegment.Table, radius: Int) {
                         Text(
                             text = row.getOrNull(c) ?: "",
                             style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 5.dp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 7.dp),
                         )
                     }
                 }
@@ -2287,7 +2443,7 @@ private fun bubbleShape(tailAtEnd: Boolean): androidx.compose.ui.graphics.Shape 
 @Composable
 private fun AttachmentChip(item: AttachmentUi, onRemove: () -> Unit) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = MaterialTheme.shapes.medium,
     ) {
         Box {
