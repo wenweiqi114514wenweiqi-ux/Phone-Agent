@@ -126,6 +126,7 @@ fun MainScreen() {
                             updatedAt = now,
                         )
                     )
+                    container.workspaceRepository.conversationWorkspace(conversationId)
                 }
             }
         }
@@ -143,6 +144,7 @@ fun MainScreen() {
                     ConversationEntity(id = "default", title = "默认会话", createdAt = now, updatedAt = now)
                 )
             }
+            container.workspaceRepository.conversationWorkspace("default")
             }
         }
     }
@@ -166,6 +168,7 @@ fun MainScreen() {
                     dao.upsert(
                         ConversationEntity(id = newId, title = "新对话", createdAt = now, updatedAt = now)
                     )
+                    container.workspaceRepository.conversationWorkspace(newId)
                 }
                 container.settings.lastConversationId = newId
                 conversationId = newId

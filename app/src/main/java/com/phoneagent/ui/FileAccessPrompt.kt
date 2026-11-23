@@ -68,7 +68,7 @@ fun StorageAccessGate(onGranted: () -> Unit = {}) {
         title = { Text("需要文件访问权限") },
         text = {
             Text(
-                "工作区一般在手机存储里（例如 Download/工作区）。\n\n" +
+                "每个会话的文件默认放在手机存储的 PhoneAgent/<会话目录>/ 下；" +
                     "没有这个权限，应用读不到、也预览不了里面的文件，AI 改完的文件点开会是空白。\n\n" +
                     "开启后返回应用，提示会自动消失。"
             )

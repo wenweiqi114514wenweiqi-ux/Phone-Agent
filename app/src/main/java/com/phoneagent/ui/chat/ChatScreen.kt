@@ -181,16 +181,16 @@ fun ChatScreen(
         scope.launch {
             val item = withContext(Dispatchers.IO) {
                 runCatching {
-                    val dir = java.io.File(ctx.filesDir, "attachments").apply { mkdirs() }
                     val name = queryDisplayName(ctx, uri) ?: "file_${System.currentTimeMillis()}"
-                    val target = java.io.File(dir, name)
+                    // 落到当前会话目录（或用户显式绑定的共享工作区），不再塞进 filesDir。
+                    val target = viewModel.attachmentTarget(name)
                     ctx.contentResolver.openInputStream(uri)?.use { ins ->
                         target.outputStream().use { outs -> ins.copyTo(outs) }
                     }
                     AttachmentUi(
-                        name = name,
+                        name = target.name,
                         path = target.absolutePath,
-                        mime = ctx.contentResolver.getType(uri) ?: guessMime(name),
+                        mime = ctx.contentResolver.getType(uri) ?: guessMime(target.name),
                         size = target.length(),
                     )
                 }.getOrNull()
@@ -207,8 +207,7 @@ fun ChatScreen(
             scope.launch {
                 val saved = withContext(Dispatchers.IO) {
                     runCatching {
-                        val dir = java.io.File(ctx.filesDir, "attachments").apply { mkdirs() }
-                        val target = java.io.File(dir, f.name)
+                        val target = viewModel.attachmentTarget(f.name)
                         f.copyTo(target, overwrite = true)
                         f.delete()
                         AttachmentUi(
@@ -245,25 +244,45 @@ fun ChatScreen(
         cameraLauncher.launch(uri)
     }
 
-    // 只在自己贴底时跟随；用户上翻后停止跟随，内容继续在下方增长
+    // 只在自己贴底时跟随；用户真实上滑后停止跟随。
     var followTail by rememberSaveable { mutableStateOf(true) }
-    var autoScroll by remember { mutableStateOf(false) }
-    // 真的来了新内容才提示；单纯手指滑一下不提示
-    var hasNewBelow by remember { mutableStateOf(false) }
-    var seenSignal by remember { mutableStateOf(0) }
+    // 区分“用户滚的”和“程序滚的”：程序滚到底不能反过来改用户状态。
+    var programmaticScroll by remember { mutableStateOf(false) }
+    // “回答已完成”小按钮：只有正常完成且用户不在底部时才显示。
+    var showFinishedButton by remember { mutableStateOf(false) }
+    var lastSeenCompletionAt by remember { mutableStateOf(0L) }
 
-    // 用户手指滚动（非程序滚动）才停止跟随；已经在底部就没有"离开"一说
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (scrolling && !autoScroll && listState.canScrollForward) followTail = false
-            if (!scrolling) autoScroll = false
+        // 只在“用户自己滚动”的开始/结束改跟随状态。
+        // 内容变长也会让 canScrollForward 变化，不能拿它直接判断“用户离开了底部”。
+        var userScrollActive = false
+        snapshotFlow {
+            listState.isScrollInProgress to listState.canScrollBackward
+        }.collect { (scrolling, canBackward) ->
+            if (scrolling) {
+                if (!programmaticScroll) {
+                    userScrollActive = true
+                    // 已经在底部、且上方还有内容，手指一滑就先停跟随。
+                    if (canBackward) followTail = false
+                }
+            } else if (userScrollActive) {
+                userScrollActive = false
+                if (!programmaticScroll) {
+                    // 滚动结束再看落点：到最底才恢复跟随。
+                    followTail = !listState.canScrollForward
+                    if (followTail) showFinishedButton = false
+                }
+            }
         }
     }
-    // 用户自己滚回最底部时恢复跟随
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.canScrollForward }.collect { canFwd ->
-            if (!canFwd) followTail = true
+
+    // 本轮正常完成：如果用户不在底部，弹“回答已完成”；在底部就继续跟随。
+    LaunchedEffect(state.roundCompletedAt, followTail) {
+        if (state.roundCompletedAt > lastSeenCompletionAt) {
+            lastSeenCompletionAt = state.roundCompletedAt
+            if (!followTail) showFinishedButton = true
         }
+        if (followTail) showFinishedButton = false
     }
 
     val mdRadius = container.settings.markdownRadius
@@ -275,25 +294,28 @@ fun ChatScreen(
     Column(modifier = modifier.fillMaxSize()) {
         val groups = groupMessages(state.messages)
         val lastLen = state.messages.lastOrNull()?.content?.length ?: 0
-
-        // 贴底跟随：消息/思考面板变长时滚到最新，但绝不打断用户上翻
-        val itemCount = groups.size + if (state.sending) 1 else 0
-        val thoughtLen = state.thoughts.sumOf { it.content.length } + state.streamingText.length
-        // 内容"版本号"：消息条数 + 流式文字长度 + 过程条数
-        val contentSignal = itemCount * 20 + lastLen / 20 + thoughtLen / 32
-        LaunchedEffect(followTail, contentSignal) {
-            if (followTail) {
-                seenSignal = contentSignal
-                hasNewBelow = false
-            } else if (contentSignal > seenSignal) {
-                hasNewBelow = true
-            }
+        val latestThought = state.thoughts.lastOrNull()
+        val showToolStatus = state.sending && state.streamingText.isNotEmpty() &&
+            latestThought != null &&
+            latestThought.type in setOf("tool_call", "tool_call_delta", "progress", "command")
+        val liveItemCount = when {
+            !state.sending -> 0
+            state.streamingText.isEmpty() -> 1
+            showToolStatus -> 2
+            else -> 1
         }
+
+        // 贴底跟随：只有用户还在底部时才滚到最新；用户上滑后绝不再拽回去。
+        val itemCount = groups.size + liveItemCount
+        val thoughtLen = state.thoughts.sumOf { it.content.length } + state.streamingText.length
         LaunchedEffect(itemCount, lastLen / 40, thoughtLen / 32) {
             if (!followTail || itemCount == 0) return@LaunchedEffect
-            autoScroll = true
-            listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
-            autoScroll = false
+            programmaticScroll = true
+            try {
+                listState.scrollToItem(itemCount - 1, Int.MAX_VALUE)
+            } finally {
+                programmaticScroll = false
+            }
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -326,30 +348,38 @@ fun ChatScreen(
             }
             if (state.sending && state.streamingText.isNotEmpty()) {
                 item { StreamingAnswer(state.streamingText, mdRadius) }
+                // 工具执行期间前文继续留在屏幕上，但下面仍要有一行“正在执行”，
+                // 否则用户会以为这段文字卡死了。
+                if (showToolStatus) {
+                    item { ThoughtPanel(state.thoughts, showReasoning = false) }
+                }
             }
         }
 
         androidx.compose.animation.AnimatedVisibility(
-            visible = hasNewBelow,
+            visible = showFinishedButton,
             enter = fadeIn() + slideInVertically { it / 3 },
             exit = fadeOut() + slideOutVertically { it / 3 },
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
         ) {
             Surface(
                 onClick = {
+                    showFinishedButton = false
                     followTail = true
-                    hasNewBelow = false
-                    autoScroll = true
                     scope.launch {
-                        listState.scrollToItem(maxOf(0, itemCount - 1), Int.MAX_VALUE)
-                        autoScroll = false
+                        programmaticScroll = true
+                        try {
+                            listState.scrollToItem(maxOf(0, itemCount - 1), Int.MAX_VALUE)
+                        } finally {
+                            programmaticScroll = false
+                        }
                     }
                 },
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f),
             ) {
                 Text(
-                    text = "↓ 有新内容",
+                    text = "回答已完成 ↓",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -631,7 +661,9 @@ fun ChatScreen(
                     SheetKind.WORKSPACE -> WorkspaceSheet(
                         path = state.workspacePath,
                         readonly = state.workspaceReadonly,
+                        conversationPath = state.conversationWorkspacePath,
                         workspaceList = state.workspaceList,
+                        onSelectConversation = { sheet = null; viewModel.useConversationWorkspace() },
                         onSelect = { name, ro -> sheet = null; viewModel.selectWorkspace(name, ro) },
                         onClear = { sheet = null; viewModel.clearWorkspace() },
                         onNew = { showNewWs = true },
@@ -1318,7 +1350,7 @@ private fun ThoughtPanel(thoughts: List<AgentThought>, showReasoning: Boolean) {
 
         if (showReasoning && reasoningText.isNotBlank()) {
             Text(
-                text = reasoningText.trim().take(240),
+                text = reasoningText.trim(),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
                 modifier = Modifier.padding(start = 13.dp, top = 4.dp),
@@ -1677,7 +1709,9 @@ private fun greetingLines(hour: Int): List<String> = when (hour) {
 private fun WorkspaceSheet(
     path: String?,
     readonly: Boolean,
+    conversationPath: String?,
     workspaceList: List<WorkspaceRepository.Workspace>,
+    onSelectConversation: () -> Unit,
     onSelect: (String, Boolean) -> Unit,
     onClear: () -> Unit,
     onNew: () -> Unit,
@@ -1692,6 +1726,21 @@ private fun WorkspaceSheet(
         modifier = Modifier.padding(top = 4.dp),
     )
     Spacer(Modifier.height(8.dp))
+    if (conversationPath != null) {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            headlineContent = { Text("本会话目录", style = MaterialTheme.typography.titleSmall) },
+            supportingContent = {
+                Text(
+                    conversationPath,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            },
+            trailingContent = { if (path == conversationPath) Icon(Icons.Filled.Check, contentDescription = null) },
+            modifier = Modifier.clickable { onSelectConversation() },
+        )
+    }
     ListItem(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         headlineContent = { Text("自由模式", style = MaterialTheme.typography.titleSmall) },

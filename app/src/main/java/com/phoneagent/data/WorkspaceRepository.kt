@@ -8,13 +8,16 @@ import kotlinx.serialization.json.Json
 /**
  * 会话级工作区配置。
  *
- * 工作区列表（name -> path/readonly）和会话绑定（conversationId -> path）都用 SharedPreferences 持久化，
- * 免去 Room 表迁移成本。path 为空/未绑定 = 自由模式（旧行为，路径随便填）。
+ * 三层含义：
+ * - 命名工作区（name -> path/readonly）：用户主动创建的共享项目，可被多个会话绑定；
+ * - 会话默认目录：每个会话一个 PhoneAgent/<hash>/，由 [ConversationWorkspace] 创建；
+ * - 自由模式：用户显式解绑后不再限制路径，属于高级选项。
  */
 class WorkspaceRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("phone_agent_workspaces", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
+    private val conversationWorkspaces = ConversationWorkspace(context)
 
     /** 一个工作区定义。 */
     @Serializable
@@ -71,17 +74,39 @@ class WorkspaceRepository(context: Context) {
         }
     }
 
-    /** 绑定会话到指定工作区（byName）。 */
+    /** 绑定会话到指定工作区（byName）。绑定后进入共享项目模式。 */
     fun bind(conversationId: String, workspaceName: String) {
-        prefs.edit().putString(KEY_BIND_PREFIX + conversationId, workspaceName).apply()
+        prefs.edit()
+            .putString(KEY_BIND_PREFIX + conversationId, workspaceName)
+            .putBoolean(KEY_FREE_PREFIX + conversationId, false)
+            .apply()
     }
 
-    /** 解除绑定 → 自由模式。 */
+    /** 解除绑定 → 自由模式（路径不再受工作区限制）。 */
     fun unbind(conversationId: String) {
-        prefs.edit().remove(KEY_BIND_PREFIX + conversationId).apply()
+        prefs.edit()
+            .remove(KEY_BIND_PREFIX + conversationId)
+            .putBoolean(KEY_FREE_PREFIX + conversationId, true)
+            .apply()
     }
 
-    /** 会话当前绑定的工作区（null = 自由模式）。 */
+    /** 回到本会话默认目录：删除命名工作区绑定，并退出自由模式。 */
+    fun resetToConversation(conversationId: String) {
+        prefs.edit()
+            .remove(KEY_BIND_PREFIX + conversationId)
+            .putBoolean(KEY_FREE_PREFIX + conversationId, false)
+            .apply()
+    }
+
+    /** 当前是否处于自由模式（只有显式解绑才是；新会话默认不是）。 */
+    fun isFreeMode(conversationId: String): Boolean =
+        prefs.getBoolean(KEY_FREE_PREFIX + conversationId, false)
+
+    /** 本会话默认目录（目录不存在会就地创建）。 */
+    fun conversationWorkspace(conversationId: String): Workspace =
+        conversationWorkspaces.workspaceFor(conversationId)
+
+    /** 会话当前绑定的工作区（null = 未绑定命名工作区）。 */
     fun boundWorkspace(conversationId: String): Workspace? {
         val name = prefs.getString(KEY_BIND_PREFIX + conversationId, null) ?: return null
         return list().firstOrNull { it.name == name }
@@ -90,5 +115,6 @@ class WorkspaceRepository(context: Context) {
     companion object {
         private const val KEY_LIST = "workspace_list"
         private const val KEY_BIND_PREFIX = "ws_bind_"
+        private const val KEY_FREE_PREFIX = "ws_free_"
     }
 }

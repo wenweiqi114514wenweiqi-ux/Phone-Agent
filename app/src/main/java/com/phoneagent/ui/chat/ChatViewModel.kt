@@ -58,6 +58,8 @@ data class ChatUiState(
     val activeMaxContext: Int = 131072,
     val workspacePath: String? = null,
     val workspaceReadonly: Boolean = false,
+    /** 本会话默认目录；即使用户切到命名工作区/自由模式，上传文件仍要知道它。 */
+    val conversationWorkspacePath: String? = null,
     val workspaceList: List<com.phoneagent.data.WorkspaceRepository.Workspace> = emptyList(),
     /** 已播过入场动画的消息 id，避免切页回来时整屏气泡重放 */
     val animatedIds: Set<String> = emptySet(),
@@ -71,6 +73,8 @@ data class ChatUiState(
     val draft: String = "",
     /** 生成中又发了一条 → 已排队，本轮结束自动发出 */
     val queued: Boolean = false,
+    /** 本轮“正常完成”的时间戳；报错/超时/用户停止不更新。 */
+    val roundCompletedAt: Long = 0L,
 )
 
 class ChatViewModel(
@@ -78,7 +82,20 @@ class ChatViewModel(
     private val conversationId: String,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(ChatUiState())
+    private val initialConversationWorkspace = runCatching {
+        container.workspaceRepository.conversationWorkspace(conversationId)
+    }.getOrNull()
+    private val initialBoundWorkspace = container.workspaceRepository.boundWorkspace(conversationId)
+    private val initialFreeMode = container.workspaceRepository.isFreeMode(conversationId)
+    private val _state = MutableStateFlow(
+        ChatUiState(
+            // 默认就是本会话目录；只有显式解绑才进入自由模式。
+            workspacePath = initialBoundWorkspace?.path
+                ?: if (initialFreeMode) null else initialConversationWorkspace?.path,
+            workspaceReadonly = initialBoundWorkspace?.readonly ?: false,
+            conversationWorkspacePath = initialConversationWorkspace?.path,
+        )
+    )
     val state: StateFlow<ChatUiState> = _state
 
     private var confirmContinuation: CancellableContinuation<Boolean>? = null
@@ -93,6 +110,8 @@ class ChatViewModel(
     private var abortReason: String? = null
     private val streamBuf = StringBuilder()
     private var lastStreamAt = 0L
+    /** 收到“换段”信号，但旧文字还没被 UI 看到：等下一段第一个增量再清空，避免闪断。 */
+    private var streamResetPending = false
     private var pendingSend: Pair<String, List<AttachmentMeta>>? = null
 
     init {
@@ -149,10 +168,6 @@ class ChatViewModel(
                 }
             }
         }
-        // 读取会话当前绑定工作区
-        container.workspaceRepository.boundWorkspace(conversationId)?.let { ws ->
-            _state.update { it.copy(workspacePath = ws.path, workspaceReadonly = ws.readonly) }
-        }
     }
 
     /** 切换到指定工作区（绑定会话），并插入一条系统提示气泡。 */
@@ -168,6 +183,43 @@ class ChatViewModel(
         container.workspaceRepository.unbind(conversationId)
         _state.update { it.copy(workspacePath = null, workspaceReadonly = false) }
         insertSystemBubble("已切换为自由模式：文件操作不再限制路径")
+    }
+
+    /** 回到本会话默认目录（退出自由模式/命名工作区绑定）。 */
+    fun useConversationWorkspace() {
+        container.workspaceRepository.resetToConversation(conversationId)
+        val ws = container.workspaceRepository.conversationWorkspace(conversationId)
+        _state.update {
+            it.copy(
+                workspacePath = ws.path,
+                workspaceReadonly = false,
+                conversationWorkspacePath = ws.path,
+            )
+        }
+        insertSystemBubble("已切换到本会话目录：${ws.path}")
+    }
+
+    /** 当前实际工作区：显式绑定的优先；未绑定且非自由模式时用会话目录。 */
+    private fun currentWorkspacePath(): String? {
+        _state.value.workspacePath?.let { return it }
+        if (container.workspaceRepository.isFreeMode(conversationId)) return null
+        return _state.value.conversationWorkspacePath
+            ?: runCatching {
+                container.workspaceRepository.conversationWorkspace(conversationId).path
+            }.getOrNull()
+    }
+
+    /**
+     * 用户附件落到哪里：优先当前工作区；自由模式/未绑定时落本会话目录。
+     * 返回一个不覆盖已有文件的目标路径。
+     */
+    fun attachmentTarget(rawName: String): java.io.File {
+        val path = _state.value.workspacePath
+            ?: _state.value.conversationWorkspacePath
+            ?: container.workspaceRepository.conversationWorkspace(conversationId).path
+        val dir = java.io.File(path)
+        dir.mkdirs()
+        return com.phoneagent.data.ConversationWorkspaceNaming.uniqueFile(dir, rawName)
     }
 
     /** 新建/保存工作区。 */
@@ -194,9 +246,17 @@ class ChatViewModel(
     fun deleteWorkspace(name: String) {
         container.workspaceRepository.delete(name)
         _state.update { it.copy(workspaceList = container.workspaceRepository.list()) }
-        // 若当前会话正用该工作区，切回自由模式
+        // 若当前会话正用该工作区，回落到本会话目录；仍在自由模式则保持 null
         if (container.workspaceRepository.boundWorkspace(conversationId) == null) {
-            _state.update { it.copy(workspacePath = null, workspaceReadonly = false) }
+            val free = container.workspaceRepository.isFreeMode(conversationId)
+            val fallback = container.workspaceRepository.conversationWorkspace(conversationId)
+            _state.update {
+                it.copy(
+                    workspacePath = if (free) null else fallback.path,
+                    workspaceReadonly = false,
+                    conversationWorkspacePath = fallback.path,
+                )
+            }
         }
     }
 
@@ -271,6 +331,19 @@ class ChatViewModel(
         container.modelRepository.setActive(id)
     }
 
+    /**
+     * 把节流缓冲里的全部文字立刻推给 UI。
+     * 流结束、工具切换、停止时都要调用，保证最后一段不会只留在内存里。
+     */
+    private fun flushStream() {
+        if (!_state.value.sending) return
+        lastStreamAt = System.currentTimeMillis()
+        val snapshot = streamBuf.toString()
+        if (snapshot != _state.value.streamingText) {
+            _state.update { it.copy(streamingText = snapshot) }
+        }
+    }
+
     fun send(text: String, attachments: List<AttachmentMeta> = emptyList()) {
         if (text.isBlank() && attachments.isEmpty()) return
         if (_state.value.sending) {
@@ -304,6 +377,7 @@ class ChatViewModel(
         runJob = viewModelScope.launch {
             ensureConversation()
             streamBuf.setLength(0)
+            streamResetPending = false
             lastStreamAt = 0L
             lastActivityAt = System.currentTimeMillis()
             abortReason = null
@@ -344,8 +418,8 @@ class ChatViewModel(
             var promptTokens = 0
             var completionTokens = 0
             try {
-                // 组装工作区上下文（有则传给 Agent 做沙箱）
-                val wsPath = _state.value.workspacePath
+                // 组装工作区上下文（默认本会话目录；命名工作区可共享）
+                val wsPath = currentWorkspacePath()
                 val workspace = if (wsPath != null) {
                     com.phoneagent.agent.WorkspaceContext(
                         root = wsPath,
@@ -378,6 +452,13 @@ class ChatViewModel(
                     onTextDelta = { delta ->
                         // 已点停止：忽略连接里残留的增量，不让人看到"停了还在写"
                         if (_state.value.sending) {
+                            // 上一步的文字先留在屏幕上；等新一步真正出第一个字再换段，
+                            // 避免旧文字先消失、新文字还没来的空窗。
+                            if (streamResetPending) {
+                                streamBuf.setLength(0)
+                                streamResetPending = false
+                                _state.update { it.copy(streamingText = "") }
+                            }
                             streamBuf.append(delta)
                             lastActivityAt = System.currentTimeMillis()
                         }
@@ -388,9 +469,40 @@ class ChatViewModel(
                             _state.update { it.copy(streamingText = snapshot) }
                         }
                     },
+                    onTextFlush = { flushStream() },
+                    onTextSegment = { text ->
+                        // 先把完整一段落库，再直接挂到当前消息列表。
+                        // AgentController 会等这里返回后才进入下一步，不会提前清空气泡。
+                        val note = MessageEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            conversationId = conversationId,
+                            role = "system",
+                            content = text,
+                            createdAt = System.currentTimeMillis(),
+                        )
+                        val saved = runCatching {
+                            container.database.messageDao().insert(note)
+                        }.isSuccess
+                        if (saved) {
+                            _state.update { s ->
+                                if (s.messages.any { it.id == note.id }) s
+                                else s.copy(messages = s.messages + note)
+                            }
+                            streamBuf.setLength(0)
+                            streamResetPending = false
+                            _state.update { it.copy(streamingText = "") }
+                        } else {
+                            com.phoneagent.util.AppLog.warn("chat", "过程文字落库失败")
+                        }
+                    },
                     onTextReset = {
-                        streamBuf.setLength(0)
-                        _state.update { it.copy(streamingText = "") }
+                        // 不在 reset 当场清空：AgentController 落库的系统过程行
+                        // 通过 Room Flow 回到 UI 需要一帧；立刻清会闪一下甚至吞字。
+                        if (streamBuf.isNotEmpty()) {
+                            streamResetPending = true
+                        } else {
+                            _state.update { it.copy(streamingText = "") }
+                        }
                     },
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -408,10 +520,12 @@ class ChatViewModel(
             } finally {
                 val cancelled = !kotlinx.coroutines.currentCoroutineContext().isActive
                 val elapsed = System.currentTimeMillis() - startedAt
+                // 流结束/异常/停止都必须先把最后一段推给 UI，再谈收尾。
+                if (!cancelled) flushStream()
                 // 等 DB 把最终回答推给 UI（新消息 createdAt 一定晚于 startedAt），再撤草稿，避免闪一下
                 if (!cancelled) {
                     var tries = 0
-                    while (tries < 8 && _state.value.messages.none { m ->
+                    while (tries < 12 && _state.value.messages.none { m ->
                             m.role == "assistant" && m.command == null && m.status == null &&
                                 m.createdAt >= startedAt && m.content.isNotBlank()
                         }) {
@@ -419,36 +533,59 @@ class ChatViewModel(
                         tries++
                     }
                 }
-                val answer = if (cancelled) null else _state.value.messages.lastOrNull { m ->
+                var answer = if (cancelled) null else _state.value.messages.lastOrNull { m ->
                     m.role == "assistant" && m.command == null && m.status == null &&
                         m.createdAt >= startedAt && m.content.isNotBlank()
                 }
+                // Room Flow 还没刷新时，直接查一次库：AgentController 返回前已经 await 落库，
+                // 这样不会出现“流式文字被清掉、正式回答还没冒出来”的空白帧。
+                if (answer == null && !cancelled) {
+                    val latest = withContext(Dispatchers.IO) {
+                        container.database.messageDao().lastByConversation(conversationId)
+                    }
+                    if (latest != null && latest.role == "assistant" &&
+                        latest.command == null && latest.status == null &&
+                        latest.createdAt >= startedAt && latest.content.isNotBlank()
+                    ) {
+                        answer = latest
+                        _state.update { s ->
+                            if (s.messages.any { it.id == latest.id }) s
+                            else s.copy(messages = s.messages + latest)
+                        }
+                    }
+                }
+                val finalAnswer = answer
                 // 没拿到正式回答（报错/卡死/被中断）时，已经流出的内容也不能就这么消失
                 val userStopped = _state.value.stopping
                 val leftover = streamBuf.toString().trim()
                 abortReason?.let { reason ->
                     _state.update { it.copy(error = reason) }
                 }
-                if (answer == null && leftover.isNotBlank() && !userStopped) {
+                if (finalAnswer == null && leftover.isNotBlank() && !userStopped) {
+                    val fallback = MessageEntity(
+                        id = java.util.UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        role = "system",
+                        content = leftover + "\n\n（本段被中断，未成为最终回答" +
+                            (abortReason?.let { "：" + it } ?: "") + "）",
+                        createdAt = System.currentTimeMillis(),
+                    )
                     runCatching {
-                        container.database.messageDao().insert(
-                            MessageEntity(
-                                id = java.util.UUID.randomUUID().toString(),
-                                conversationId = conversationId,
-                                role = "system",
-                                content = leftover.take(4000) + "\n\n（本段被中断，未成为最终回答" +
-                                    (abortReason?.let { "：" + it } ?: "") + "）",
-                                createdAt = System.currentTimeMillis(),
-                            )
-                        )
+                        container.database.messageDao().insert(fallback)
+                        // 落库后立刻挂到当前列表，别等下一次 Flow。
+                        _state.update { s ->
+                            if (s.messages.any { it.id == fallback.id }) s
+                            else s.copy(messages = s.messages + fallback)
+                        }
                     }
                 }
                 streamBuf.setLength(0)
+                streamResetPending = false
                 watchdogJob?.cancel()
                 watchdogJob = null
-                if (answer != null) {
+                if (finalAnswer != null) {
                     val estimated = completionTokens <= 0
-                    val out = if (estimated) (answer.content.length / 2).coerceAtLeast(1) else completionTokens
+                    val out = if (estimated) (finalAnswer.content.length / 2).coerceAtLeast(1) else completionTokens
                     _state.update {
                         it.copy(
                             sending = false,
@@ -457,7 +594,13 @@ class ChatViewModel(
                             pendingCommand = null,
                             pendingQuestion = null,
                             pendingOptions = emptyList(),
-                            answerStats = it.answerStats + (answer.id to AnswerStats(
+                            // 只有正常拿到最终回答才算“完成”；停止/报错/超时不弹完成提示。
+                            roundCompletedAt = if (!cancelled && !userStopped) {
+                                System.currentTimeMillis()
+                            } else {
+                                it.roundCompletedAt
+                            },
+                            answerStats = it.answerStats + (finalAnswer.id to AnswerStats(
                                 elapsedMs = elapsed,
                                 promptTokens = promptTokens,
                                 completionTokens = out,
@@ -532,10 +675,15 @@ class ChatViewModel(
      * 停止生成：已经流出来的内容照样保留（末尾标"已停止"），不把用户看到的东西吞掉。
      */
     fun stop() {
-        val partial = _state.value.streamingText.trim()
+        // 以完整缓冲区为准，而不是上一帧 streamingText：
+        // 60ms 节流里的最后几个字也算“用户已经看到/正在看”的内容。
+        val partial = streamBuf.toString().trim().ifBlank {
+            _state.value.streamingText.trim()
+        }
         runJob?.cancel()
         runJob = null
         streamBuf.setLength(0)
+        streamResetPending = false
         _state.update {
             it.copy(
                 sending = false,

@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import com.phoneagent.tools.ToolRegistry
+import com.phoneagent.tools.ToolSelector
 import com.phoneagent.tools.ToolRisk
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
@@ -106,7 +107,15 @@ class AgentController(
         attachments: List<AttachmentMeta> = emptyList(),
         /** 正文增量：每来一段就推给 UI，让它像打字一样长出来 */
         onTextDelta: (String) -> Unit = {},
-        /** 换一步 / 开始调工具：撤掉上一段临时正文 */
+        /** 把节流期间攒下的最后一段正文立刻推给 UI（流结束时必须调用） */
+        onTextFlush: () -> Unit = {},
+        /**
+         * 一步正文结束（通常是要调工具了）：把完整文字交给 UI 落库并挂进消息列表。
+         * UI 返回后 Agent 才继续下一步，避免“UI 还没收到、气泡已经清空”。
+         * 为空时退回由 AgentController 直接落库。
+         */
+        onTextSegment: (suspend (String) -> Unit)? = null,
+        /** 换一步 / 开始调工具：上一段正文已落库，UI 可以撤掉临时气泡 */
         onTextReset: () -> Unit = {},
         /** 重新生成时用户那条消息已经在库里，不再重复插入 */
         insertUserMessage: Boolean = true,
@@ -211,7 +220,14 @@ class AgentController(
             .toMutableList()
 
         // 4. 当前启用的工具清单
-        val tools = registry.enabledTools().map { it.toToolSpec() }
+        // 不再把 66 个工具全部塞进每次请求：按本轮意图保留高频核心 + 相关分组。
+        // 工具页仍显示全部；用户自定义工具始终保留；正文点名某个工具也会保留。
+        val selectionText = buildString {
+            append(userText)
+            append('\n')
+            append(history.filter { it.role == "user" }.takeLast(2).joinToString("\n") { it.content.take(300) })
+        }
+        val tools = ToolSelector.select(registry.enabledTools(), selectionText).map { it.toToolSpec() }
 
         // 5. 多步 Agent 循环
         var lastResult = ""
@@ -261,21 +277,30 @@ class AgentController(
                     val soFar = thoughts.filter { it.type == "text" }
                         .joinToString("") { it.content }.trim()
                     if (soFar.isNotBlank()) {
-                        runCatching {
-                            messageDao.insert(
-                                assistantMessage(conversationId, soFar.take(800)).copy(
-                                    id = java.util.UUID.randomUUID().toString(),
-                                    role = "system",
-                                    command = null,
-                                    status = null,
-                                    createdAt = System.currentTimeMillis(),
+                        // 流式节流可能还没把最后一段推到 UI，先 flush 再落库。
+                        onTextFlush()
+                        if (onTextSegment != null) {
+                            // 交给 ChatViewModel：落库 + 挂进消息列表，完成后再清空流式气泡。
+                            onTextSegment.invoke(soFar)
+                        } else {
+                            runCatching {
+                                messageDao.insert(
+                                    assistantMessage(conversationId, soFar).copy(
+                                        id = java.util.UUID.randomUUID().toString(),
+                                        role = "system",
+                                        command = null,
+                                        status = null,
+                                        createdAt = System.currentTimeMillis(),
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                     onTextReset()
                 }
             }
+            // 流已结束：把 60ms 节流里攒下的最后一段完整推到 UI。
+            onTextFlush()
 
             val toolCalls = thoughts.filter { it.type == "tool_call" }
             val text = thoughts.filter { it.type == "text" }.joinToString("") { it.content }
@@ -403,18 +428,9 @@ class AgentController(
             messageDao.insert(
                 assistantMessage(conversationId, resultText, command = commandText, status = if (result.ok) "ok" else "error", result = result.output.take(2000))
             )
-            if (!result.ok) {
-                val why = result.error ?: result.output.take(200)
-                // 用户没给权限 / 文件不存在这类是环境问题，只记录、不弹「发现问题」提示
-                if (com.phoneagent.tools.ToolFailure.isEnv(why)) {
-                    com.phoneagent.util.AppLog.env("tool", "工具 ${parsed.tool.name} 未完成：$why")
-                } else {
-                    com.phoneagent.util.AppLog.warn(
-                        "tool",
-                        "工具 ${parsed.tool.name} 执行失败：$why",
-                    )
-                }
-            }
+            // 工具失败属于本轮对话的执行结果：已经作为 error 步骤显示在聊天里，
+            // 也会回传给模型修正参数/重试。不要写进「设置 → 运行日志」，
+            // 否则网络失败、ping 不通这类正常工具错误会一直堆在软件日志里。
             if (settings.logEnabled) {
                 logDao.insert(
                     LogEntity(
@@ -463,6 +479,8 @@ class AgentController(
                     onThought(t)
                     if (t.type == "text") onTextDelta(t.content)
                 }
+                // 总结流结束也要 flush，否则最后几个字会卡在节流缓冲里。
+                onTextFlush()
                 val finalText = stripToolCallArtifacts(
                     finalThoughts.filter { it.type == "text" }.joinToString("") { it.content }
                 ).trim()
@@ -520,6 +538,18 @@ class AgentController(
         // 只读工作区：拦截写/删/移动/下载类工具
         if (ws.readonly && name in WRITE_TOOLS) {
             return "当前工作区为只读模式，禁止 ${name} 操作"
+        }
+        // shell 没有 path 参数；把默认 CWD 固定到工作区，避免模型用相对路径时落在 "/"。
+        // 已经显式以 cd 开头的命令保持原样（例如需要进 /data/local/tmp 的 Python）。
+        if (name == "shell_exec") {
+            val raw = parsed.args["command"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (raw.isNotBlank() && !raw.startsWith("cd ")) {
+                parsed.args = buildJsonObject {
+                    parsed.args.forEach { (k, v) -> put(k, v) }
+                    put("command", JsonPrimitive("cd ${shellQuote(ws.root)} && $raw"))
+                }
+            }
+            return null
         }
         // 非文件工具不涉及路径，直接放行
         if (name !in PATH_TOOLS) return null
@@ -581,6 +611,10 @@ class AgentController(
         parsed.args = newArgs
         return null
     }
+
+    /** 把工作区路径安全地拼进 shell 命令。 */
+    private fun shellQuote(value: String): String =
+        "'" + value.replace("'", "'\\''") + "'"
 
     /**
      * 解析路径：相对路径以工作区为基准（不是进程当前目录）；绝对路径必须在工作区内；
@@ -681,8 +715,11 @@ class AgentController(
             append("\n\n## 当前工作区\n")
             append("- 根目录：").append(ws.root).append("\n")
             append("- 只读：").append(if (ws.readonly) "是（只能读，不能写/删/移动）" else "否").append("\n")
-            append("- 文件类工具的 path 参数：可以直接用相对路径（会基于上面的根目录解析），")
-            append("也可以写完整绝对路径；不要用 /、/sdcard 等其它位置。\n")
+            append("- 这是本会话专属目录：用户上传的附件、AI 生成的文件都放在这里。\n")
+            append("- 文件类工具的 path 参数可以直接用相对路径（会基于上面的根目录解析），")
+            append("也可以写根目录下的完整绝对路径；不要用 /、/sdcard 等其它位置。\n")
+            append("- 找文件先看当前目录或用户给出的附件路径；不要用 find /storage/emulated/0 ")
+            append("或遍历其它会话目录，避免把别的对话文件误当成本次任务的材料。\n")
         }
     }
 
@@ -1049,46 +1086,11 @@ class AgentController(
             你可以通过调用工具来真实执行手机操作，也可以直接回答用户的问题。
 
             ## 你的能力范围
-            ### 文件操作
-            - 列出目录(file_list)、创建目录(file_mkdir)、创建文件(file_touch)
-            - 复制(file_copy)、移动/重命名(file_move)、删除(file_remove)
-            - 查看内容(file_cat)、追加写入(file_append)、覆盖写入(file_write)
-            - 搜索文件(file_find)、搜索内容(file_grep)、查看末尾(file_tail)
-            - 文件信息(file_stat)、空间占用(file_du)、行数统计(file_wc)
-            - docx提取文本(doc_extract_text)、base64编码(file_base64)
-            ### 交付文件给用户
-            - 你写好的文件（报告、代码、表格、图片、音频、文档）要让用户看到时，调用 submit_file(path, title, note) 提交一次
-            - 提交只记录文件路径和大小，不复制文件；用户点开即在应用内预览该文件
-            - 同一路径再次提交记为下一个版本
-            - 提交会先体检：0 字节、build_*/_xlsx_build 这类构建中间件、结构不完整的 docx/xlsx/pptx 都会被拒收。被拒就修好再提交一次，不要换个路径碰运气
-            - 一个任务只提交最终成果；中间过程文件留在工作区里，不要提交
+            你能操作文件、应用、屏幕、系统设置和网络。具体有哪些工具，以本次请求附带的工具清单为准；
+            清单里没有的能力，不代表手机做不到，可以改用 shell_exec 或最接近的专用工具完成。
+            不要凭记忆假设某个工具存在，也不要为了确认工具存在去执行 which / type / ls。
 
-            ### OCR 图片识别
-            - 识别图片中的文字(ocr_image)：传入图片路径即可，支持中文/英文截图、照片、扫描件；
-            - 常配合截屏(screencap)使用：先截屏到 /sdcard/xxx.png，再 ocr_image 识别屏幕内容。
-            - 要看懂画面（不只是认字）、或识别图表/手写/复杂截图，用 image_describe(path，question 可留空)：它调用当前模型的多模态看图能力。
-            ### 系统与后台
-            - 修改系统设置(set_system_setting)：brightness(0-255)/screen_timeout(毫秒)/auto_rotate(true/false)，需授予修改系统设置权限
-            - 后台保活(set_keepalive)：执行较长任务（多步连续操作、长时间等待）前开启，任务结束后关闭
-            ### 应用管理
-            - 列出已安装应用(pm_list_packages)、启动应用(am_start)
-            - 卸载(pm_uninstall)、安装APK(pm_install)、清除数据(pm_clear)
-            - 禁用应用(pm_disable)、强制停止(am_force_stop)、发送广播(am_broadcast)
-            ### 屏幕与输入
-            - 截屏(screencap)、按键(input_keyevent)、输入文字(input_text)
-            - 点击(input_tap)、滑动(input_swipe)、长按(input_longpress)
-            ### 系统与网络
-            - 系统信息：dumpsys、磁盘(sys_df)、内存(sys_free)、进程(sys_ps)
-            - 系统属性(sys_getprop)、电池(sys_battery)、日志(logcat)
-            - 网络：HTTP请求(http_get/http_post)、网页正文抓取(web_fetch)、下载文件(file_download)、ping、netstat、DNS解析(dns_lookup)
-            - web_fetch(url)：抓网页正文纯文本，比 http_get 干净得多，读文章/文档/百科优先用它；http_get 仅在需要原始 JSON/HTML 时用
-            - 需要 Python 时直接写 python3 脚本交给 shell_exec；App 的测试组件会自动准备 python3，不要用 printf/echo 逐字节拼 PCM 或二进制，也不要先 which 探测。
-            - 测试组件没准备好时，先继续做不依赖 Python 的部分，并在结果里说明「等待组件准备」，不要自己下载或安装 Python/FFmpeg。
-            ### 设置与设备
-            - 读取设置(settings_get)、修改设置(settings_put/settings_put_global)
-            - 重启(reboot)、任意shell命令(shell_exec)
-
-            ### 长期记忆
+            ## 长期记忆
             - memory_save(content, weight)：写进 App 内置记忆库，跨会话长期生效。
             - 只有用户明确说「记住…」「以后都…」「我习惯…」时才可调用，一条一个事实，写成简短陈述句（如「用户是安卓开发者，习惯用 Kotlin」）。
             - 严禁把环境探测结论写进记忆：设备有没有装 Python/zip/java/busybox、Shizuku 是否可用、上次某命令失败之类，都会随版本变化，只在本轮实测，不入库。
@@ -1146,7 +1148,7 @@ class AgentController(
             - 最终回答使用中文，简洁明确；
             - 涉及执行结果时，说明做了什么、结果如何；
             - 不需要操作手机的问题，直接回答，不要调用工具；
-            - 文件路径默认用 /sdcard/ 下的路径（如 /sdcard/Download/）。
+            - 文件路径优先用当前工作区的相对路径，不要默认写 /sdcard/Download；
 
             ## 信息使用顺序
             - 先看系统提示里注入的「关于用户的长期记忆」：只采纳与当前问题真正相关的条目，不要为了用而用，离题的一律忽略；
