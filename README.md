@@ -1,187 +1,314 @@
-# PhoneAgent — 跑在手机里的 AI Agent
+<div align="center">
 
-PhoneAgent 是一个完全运行在 Android 手机本地的 AI 助手。用户用自然语言描述任务，它会自行拆解步骤、调用工具、读写文件，完成后把文件卡片放回聊天，点开即可在应用内预览。
+# PhoneAgent
 
-不需要服务器、电脑或常驻 ADB。安装 APK、授权 Shizuku 或 Root、填写模型 API Key 即可使用。
+**跑在手机里的 AI Agent —— 说一句话，让大模型替你动手**
 
-> 当前版本：**1.0.16**（versionCode 90，2026-11-25）
-> Release：https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent/releases/tag/v1.0.16
-> 本仓库与其它同名项目无关，代码与实现均为独立完成。
+不需要服务器，不需要电脑，不需要常驻 ADB。
+装一个 APK，授权 Shizuku 或 Root，填一个模型 Key，能力就长在设备上。
+
+[![version](https://img.shields.io/badge/version-1.0.16-2f6fed?style=flat-square)](https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent/releases)
+[![android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?style=flat-square&logo=android&logoColor=white)](https://developer.android.com)
+[![kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7f52ff?style=flat-square&logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![compose](https://img.shields.io/badge/Compose-Material%203-4285f4?style=flat-square)](https://developer.android.com/jetpack/compose)
+[![tools](https://img.shields.io/badge/tools-66-informational?style=flat-square)](#能力清单)
+[![license](https://img.shields.io/badge/license-MIT-3c9d3c?style=flat-square)](LICENSE)
+
+[快速开始](#快速开始) · [能力清单](#能力清单) · [工作原理](#工作原理) · [权限与安全](#权限与安全) · [常见问题](#常见问题)
+
+</div>
 
 ---
 
-## 功能
+## 它是什么
 
-### 对话与任务执行
+PhoneAgent 是一个**完全运行在 Android 手机本地**的通用 AI Agent。你说「把这周的销售表汇总成一份带图表的报告」，它会自己拆解步骤、挑选工具、执行命令、读写文件，最后把成品卡片放回聊天窗，点开就能预览。
 
-- 兼容任意 **OpenAI 协议**接口：DeepSeek、豆包 / 火山方舟、通义千问、Ollama、自建网关
-- 多步工具调用自动编排，单轮最多 24 步；消息中包含编号步骤时，会自动整理为任务清单
-- 正文流式输出，支持随时停止、排队发送、草稿保留、重新思考、复制
-- **流式收尾兜底**：流结束、工具切换、用户停止时强制 flush，最后一段文字不会丢；工具调用前先落库再进入下一步
-- **按意图下发工具**：常规对话保留 36 个核心工具，安装 / 屏幕 / 系统 / 网络诊断按关键词追加；自定义工具和正文点名的工具始终保留
-- 三档安全策略：全部允许 / 高危确认 / 全部确认；高危命令先弹窗再执行
+它与「套壳聊天 App」的区别只有三点：
 
-### 文件与文档
+| 关注点 | PhoneAgent 的做法 |
+|---|---|
+| **能做事，而不只是能聊** | 66 个工具覆盖文件、Office、网络、截图点击、应用管理、系统设置，由模型自主编排多步调用 |
+| **权限在你手里** | 执行通道二选一：Root（Magisk / KernelSU）优先，Shizuku 回退；三档安全策略可随时收紧 |
+| **产物落在手机里** | 生成的 docx / xlsx / pptx 不经过任何服务器，直接写入工作区并在应用内渲染预览 |
 
-- **会话工作区**：每个会话默认独立目录 `PhoneAgent/<32位hex>/`，上传附件和 AI 产物都落在当前会话；命名工作区可作为跨会话共享项目
-- **路径约束**：文件工具的相对路径按当前工作区解析，越界读写会被拦截；`shell_exec` 默认进入当前工作区，但仍可通过显式绝对路径访问外部，硬沙箱尚未实现
-- **原生生成 Office 文件**，不依赖第三方库、不联网：
-  - `doc_write` 生成 docx（标题、列表、引用、加粗、行内代码）
-  - `sheet_write` 生成 xlsx（表头加粗、数字自动识别、列宽自适应）
-  - `ppt_write` 生成 pptx（每页标题与要点，`---` 分页）
-- **读取 Office**：`sheet_read` 读取 xlsx（含共享字符串），`doc_extract_text` 提取 docx 正文
-- **压缩三件套**：`file_zip` / `file_unzip` / `file_zip_list`，打包后自动校验 Office 根部件
-- 文件操作：列目录、读取、写入、追加、复制、移动、查找、grep、tail、stat、du、wc、chmod、删除
-- **提交卡**：交付文件只记录真实路径，不复制占用空间；卡片显示文件名、大小、版本，点开即预览
-- **提交前体检**：0 字节、构建目录中间件、结构残缺的 docx / xlsx / pptx 一律拒收
+> [!NOTE]
+> 模型只负责「思考」。真正的读写、执行、截图都发生在你的设备上；对话内容通过你填写的 Base URL 发往你选择的模型服务商（DeepSeek、豆包 / 火山方舟、通义千问、Ollama、自建网关均可）。
 
-### 预览
+---
 
-- 文本、Markdown、HTML、图片（手势缩放、自动换行、字号调节）
-- docx / xlsx / pptx 本地渲染，使用开源引擎 **Universal File Preview**（MIT），文件不上传
-- 深色与原色两套渲染，可一键切换
+## 亮点
 
-### 设备与系统
+| 维度 | 能力 | 说明 |
+|---|---|---|
+| **多步编排** | 单轮最多 24 步 | 自动拆解任务、连续调用工具；消息中带编号步骤时自动收拢为任务清单 |
+| **会话工作区** | 一会话一目录 | 每个会话默认独立目录 `PhoneAgent/<32位hex>/`，附件与产物各自归位；命名工作区可跨会话共享 |
+| **原生 Office** | 纯 Kotlin 生成与解析 | `doc_write` / `sheet_write` / `ppt_write` 直接写 OOXML，不联网、不依赖第三方库 |
+| **内置预览** | 离线渲染常见格式 | 文本、Markdown、HTML、图片、docx / xlsx / pptx 本地渲染，文件不上传 |
+| **能操作界面** | 截图、点击、滑动、输入 | 基于 shell `input` 与 `screencap`，配合 OCR 与图像理解做屏幕级操作 |
+| **长期记忆** | 本机检索 + 防串扰 | 记忆存在 Room 数据库，按相关度注入提示词；仅在有时间线索时检索，避免污染当前对话 |
 
-- 应用管理：列出、安装、卸载、清数据、禁用、启动、停止、发送广播
-- 界面操作：截图、按键、点击、滑动、长按
-- 系统信息与设置：读写设置项、dumpsys、logcat、进程 / 存储 / 内存 / 电池 / 网络状态、系统属性
-- 网络：HTTP GET/POST、文件下载、DNS 查询、网页抓取
-- 图像：OCR 中文文字识别（ML Kit 离线）、图片内容理解
-- 执行通道：**Root（Magisk / KernelSU）优先，Shizuku 回退**
+---
 
-### 记忆与会话
+## 工作原理
 
-- 长期记忆保存在本机数据库，按相关度检索并注入提示词
-- 防串扰：仅当语句出现「之前 / 上次 / 记得 / 习惯」等时间线索时才检索旧记忆；「设备上没有某工具」这类过期环境结论会在读写两侧被过滤
-- 支持多会话、会话标题、归档、删除；删除时可选择同时清理该会话文件，设置页可查看会话目录占用并清理无主目录
-- 旧版 `filesDir/attachments`、`cacheDir/attachments` 首次启动自动复制到对应会话目录，旧消息附件路径同步更新
-- 「本次对话的文件」独立成页；会话目录按 `SHA-256(conversationId)` 稳定生成，重启后仍是同一目录
+```mermaid
+flowchart TD
+    A["用户输入<br/>自然语言 + 附件"] --> B["ChatViewModel<br/>流式渲染 · 会话状态 · 附件"]
+    B --> C["AgentController<br/>24 步循环 · 上下文预算 · 系统提示词"]
+    C --> D["ToolSelector<br/>66 个工具 → 36 常驻 + 关键词追加"]
+    D --> E["OpenAI 兼容接口<br/>SSE 解析 reasoning / tool_calls"]
+    E -- "tool_calls" --> C
+    C --> F{"SafetyPolicy<br/>风险裁决"}
+    F -- "低危 或 全部允许" --> G["执行层<br/>Root Shell · Shizuku · 应用内 IO"]
+    F -- "高危" --> H["确认弹窗"] --> G
+    G --> I[("工作区 / Android 系统")]
+    I --> C
+    C --> J["提交卡 + 内置预览"]
+    J --> B
+```
 
-### 更新
+一次任务的完整生命周期：
 
-- 从 GitHub Releases 检查新版本，提供**正式版 / Beta** 两条通道
-- 设置中可开关「加入 beta 更新」：关闭时只匹配正式版，开启后才检查预发布版本
-- 应用内下载 APK 并调用系统安装器，覆盖安装保留数据与设置
-- 更新弹窗首页只显示「本版重点」，过滤版本号 / 哈希 / 安装说明等噪声；详情页按标题、列表、代码块排版并清除 Markdown 符号
+1. **理解** — 用户消息连同系统提示词、工作区路径、可用工具清单一起下发，模型返回流式正文与工具调用。
+2. **裁剪** — `ToolSelector` 始终下发 36 个高频工具，其余按关键词（安装、截屏、设置等）动态追加，降低每轮 token 开销；自定义工具与正文点名的工具始终保留。
+3. **裁决** — 每次调用先过 `SafetyPolicy`：低危直接执行，高危按档位弹窗确认，用户拒绝则回填错误让模型换路。
+4. **执行** — 由 `ShizukuExecutor` 走 Root / Shizuku 通道，或走应用内文件 API 读写工作区。
+5. **交付** — 产物经「提交前体检」（0 字节、构建中间件、结构残缺的 docx / xlsx / pptx 一律拒收）后生成提交卡；卡片只记录真实路径，不复制文件占空间。
 
-### 个性化
+---
 
-- Material 3，深浅色跟随系统或手动切换，主色盘五个槽位
-- 输出风格（自然 / 简洁 / 专业 / 活泼 / 直白）、篇幅、Emoji 用量
-- AI 人格设定、AI 眼中的用户形象、Markdown 圆角
-- 运行日志分级：软件问题与环境权限问题分开记录；工具执行失败只保留在对话步骤，不再刷进运行日志
+## 能力清单
 
-## 使用步骤
+62 个系统与文件工具 + 4 个会话工具，按用途分为八组：
 
-1. 安装 APK（Android 8.0 及以上，minSdk 26）
-2. 授权执行通道：Root 直接授权；无 Root 时安装 Shizuku，通过 adb 启动一次服务并在应用内授权
-3. 开启「所有文件访问权限」，否则工作区位于 `/storage/emulated/0` 时预览无法读取文件
-4. 设置 → 模型与接入：填写 Base URL、API Key、模型名
-5. 默认直接使用当前会话目录；需要跨会话共享文件时，在工作区面板选择命名工作区
+| 分组 | 数量 | 代表工具 | 典型场景 |
+|---|---:|---|---|
+| 文件系统 | 20 | `file_list` `file_write` `file_grep` `file_zip` | 遍历目录、批量改写、全文检索、打包压缩 |
+| Office 文档 | 5 | `doc_write` `sheet_write` `ppt_write` `sheet_read` | 生成报告 / 表格 / 演示稿，回读 xlsx 与 docx |
+| 网络 | 7 | `http_get` `http_post` `web_fetch` `file_download` | 抓取网页、调用接口、断网诊断（ping / dns / netstat） |
+| 图像 | 2 | `ocr_image` `image_describe` | 离线中文 OCR（ML Kit）、图片内容理解 |
+| 屏幕交互 | 6 | `screencap` `input_tap` `input_swipe` `input_text` | 截图、点击、滑动、长按、输入、按键 |
+| 应用管理 | 8 | `pm_install` `pm_uninstall` `pm_clear` `am_start` | 安装卸载、清数据、禁用、启动与广播 |
+| 系统与 Shell | 14 | `shell_exec` `dumpsys` `logcat` `sys_battery` | 任意命令、系统诊断、属性与设置读写、重启 |
+| 会话与交付 | 4 | `submit_file` `ask_user` `memory_save` | 交付文件卡片、反问澄清、写入长期记忆 |
+
+<details>
+<summary><b>展开查看全部 66 个工具</b></summary>
+
+```
+文件系统 (20)
+  file_list  file_mkdir  file_touch  file_copy  file_move
+  file_cat   file_write  file_append file_grep  file_tail
+  file_stat  file_du     file_wc     file_base64
+  file_find  file_chmod  file_remove
+  file_zip   file_unzip  file_zip_list
+
+Office 文档 (5)
+  doc_write  doc_extract_text  sheet_write  sheet_read  ppt_write
+
+网络 (7)
+  http_get  http_post  web_fetch  file_download
+  ping      dns_lookup  netstat
+
+图像 (2)
+  ocr_image  image_describe
+
+屏幕交互 (6)
+  screencap  input_tap  input_swipe  input_longpress  input_text  input_keyevent
+
+应用管理 (8)
+  pm_list_packages  pm_install  pm_uninstall  pm_clear  pm_disable
+  am_start  am_force_stop  am_broadcast
+
+系统与 Shell (14)
+  shell_exec  dumpsys  logcat  reboot
+  settings_get  settings_put  settings_put_global  set_system_setting
+  sys_battery  sys_df  sys_free  sys_getprop  sys_ip  sys_ps
+
+会话与交付 (4)
+  submit_file  ask_user  memory_save  set_keepalive
+```
+
+</details>
+
+---
+
+## 快速开始
+
+### 一、直接安装
+
+1. 下载并安装 APK（Android 8.0 / minSdk 26 及以上）。
+2. 授权执行通道：有 Root 直接授权；无 Root 则安装 [Shizuku](https://shizuku.rikka.app/)，用 adb 启动一次服务后在应用内授权。
+3. 授予「所有文件访问权限」，否则工作区位于 `/storage/emulated/0` 时预览读不到文件。
+4. 进入 **设置 → 模型与接入**，填写 Base URL、API Key、模型名，选好工作区目录即可开始。
+
+### 二、从源码构建
+
+前置：**JDK 17** + **Android SDK**（compileSdk 36 / build-tools 35.0.0）。
+
+```bash
+# 1. 拉取源码
+git clone https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent.git
+cd Phone-Agent
+
+# 2. 指向本机 SDK（该文件不入库）
+echo "sdk.dir=/path/to/Android/Sdk" > local.properties
+
+# 3. 打包 debug
+./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+> [!TIP]
+> 首次构建需要联网拉取 Gradle 与依赖。若要混淆上架，请先替换 `app/build.gradle.kts` 里的 release 签名——当前沿用 debug 签名，目的是让新版本能覆盖安装旧版本并保留数据。
+
+---
+
+## 权限与安全
+
+PhoneAgent 以较高权限运行，因此把「要不要执行」交给你决定：
+
+| 档位 | 行为 | 适合场景 |
+|---|---|---|
+| **全部允许** `ALLOW_ALL` | 所有工具调用直接执行 | 自有测试机、可信脚本 |
+| **高危确认** `CONFIRM_HIGH` | 高危工具弹窗确认，低危静默执行（**默认**） | 日常使用 |
+| **全部确认** `CONFIRM_ALL` | 任何调用都要手动放行 | 首次试用、陌生任务 |
+
+与之配套的还有几层约束：
+
+- **路径约束**：文件工具的相对路径按当前工作区解析，越界读写被拦截；`shell_exec` 默认进入当前工作区，但显式绝对路径仍可访问外部（硬沙箱尚未实现）。
+- **提交前体检**：0 字节、构建中间件、结构残缺的 Office 文件不生成交付卡。
+- **工具级风险标注**：`ToolRisk.HIGH` 覆盖卸载、清数据、重启、`shell_exec` 等破坏性操作。
+- **变更可追溯**：运行日志分级记录，软件问题与环境权限问题分开呈现。
+
+> [!WARNING]
+> 本应用会在设备上执行命令、读写文件、安装或卸载应用。请仅在自己的设备上使用，并保持「高危确认」或更严格的策略。因误操作导致的数据丢失或设备异常，后果由使用者自行承担。
+
+---
+
+## 项目结构
+
+```
+Phone-Agent/
+├── app/src/main/
+│   ├── java/com/phoneagent/
+│   │   ├── agent/      AgentController：多步循环、工具裁决、工作区、提示词、提交卡
+│   │   ├── llm/        OpenAI 兼容客户端（SSE 流式解析、可取消）
+│   │   ├── tools/      工具注册表、参数解析、安全策略、按意图裁剪
+│   │   ├── exec/       Root / Shizuku 执行器；Office 读写与结构校验
+│   │   ├── data/       Room 实体与迁移、设置、会话工作区、更新检测、旧附件迁移
+│   │   ├── memory/     长期记忆：检索、写入护栏、过期结论过滤
+│   │   ├── ui/         chat / preview / settings / sessions / artifacts（Compose）
+│   │   └── util/       运行日志、存储与权限入口
+│   ├── assets/         Office 预览 bundle、Python 3.14 测试组件（arm64）
+│   └── res/            图标与主题资源
+├── office-preview/     把 Universal File Preview 打成单文件 bundle 的构建工程
+├── docs/               技术方案书、工具清单、系统提示词、发布说明
+└── gradle/             版本目录与 wrapper
+```
+
+代码规模：**80 个 Kotlin 文件、约 2.1 万行**，全项目文本代码约 2.42 万行。
+
+---
 
 ## 技术栈
 
 | 层 | 选型 |
 |---|---|
-| 语言 / UI | Kotlin 2.x + Jetpack Compose（Material 3） |
-| 数据 | Room（SQLite），迁移带 schema 自校验 |
-| 网络 | OkHttp + SSE 手写流式解析（含 `reasoning_content` 与 `tool_calls` 增量聚合） |
-| 执行 | Shizuku API + Root shell（`ShizukuExecutor`） |
-| Office | 纯 Kotlin 写 docx / xlsx / pptx（ZIP + OOXML），预览使用 Universal File Preview |
-| 架构 | 单 Activity + Compose、ViewModel + StateFlow、手写 DI 容器 |
+| 语言 / UI | Kotlin 2.0.21 + Jetpack Compose（Material 3） |
+| 数据 | Room 2.6.1（SQLite），迁移带 schema 自校验 |
+| 网络 | OkHttp 4.12 + 手写 SSE 流式解析（含 `reasoning_content` 与 `tool_calls` 增量聚合） |
+| 执行 | Shizuku API 13.1.5 + Root shell |
+| Office | 纯 Kotlin 写 docx / xlsx / pptx（ZIP + OOXML），预览用 Universal File Preview |
+| 图像 | ML Kit 中文文字识别（离线） |
+| 架构 | 单 Activity + Compose，ViewModel + StateFlow，手写 DI 容器 |
 
-## 工程结构
-
-```
-app/src/main/java/com/phoneagent/
-├── agent/          AgentController：多步循环、工具裁决、工作区沙箱、提示词、提交卡
-├── llm/            OpenAI 兼容客户端（SSE 解析、可取消）
-├── tools/          工具注册表、参数解析、安全策略
-├── exec/           Shizuku / Root 执行器；OfficeWriter / PptxWriter / OfficeReader / OfficeCheck
-├── data/           Room 实体、DAO、迁移、设置、更新检测
-├── memory/         长期记忆：检索、写入护栏、过期结论过滤
-├── ui/
-│   ├── chat/       聊天页、流式渲染、Markdown、提交卡
-│   ├── preview/    内置预览器（文本 / Markdown / HTML / 图片 / Office）
-│   ├── settings/   设置页（模型、工具、工作区、记忆、更新、日志等）
-│   ├── update/     更新弹窗
-│   └── artifacts/  「本次对话的文件」
-├── util/           运行日志、存储权限入口
-└── PhoneAgentApp   初始化、默认工具注入、崩溃恢复
-```
-
-## 构建
-
-前置：JDK 17、Android SDK（compileSdk 36、build-tools 35.0.0）。
-
-```bash
-# 1) 指向本机 SDK（该文件不入库）
-echo "sdk.dir=/path/to/Android/Sdk" > local.properties
-
-# 2) 打包 debug
-./gradlew assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
-```
+---
 
 ## 版本
 
-### 1.0.16（当前，vc90）
+当前 **1.0.16**（versionCode 90）。本版重点：
 
-- 每个会话默认独立目录 `PhoneAgent/<32位hex>/`，上传附件、AI 产物和 `shell_exec` 默认 CWD 都跟随当前会话；命名工作区继续作为跨会话共享项目
-- 旧版 `filesDir/attachments`、`cacheDir/attachments` 在首次启动时复制到对应会话目录，更新消息里的附件路径；原文件保留，失败不阻塞启动
-- 删除会话可选同时删除会话目录，默认勾选；删除当前会话后自动回到默认会话
-- 设置页新增「会话文件」：显示会话目录总占用，支持清理没有对应会话记录的无主目录
-- 修复流式输出最后一段丢失、工具切换清空气泡、停止生成内容不完整；消息先落库再进入下一步
-- 完成提示与跟随滚动：用户上滑停止自动跟随；正常回答结束后，仅在用户不在底部时显示「回答已完成 ↓」，回底或点击后消失
-- 工具失败不再写入「设置 → 运行日志」，聊天里仍保留 error 步骤供模型重试
-- Token 优化：常规对话只下发 36 个核心工具，应用 / 屏幕 / 系统 / 网络诊断按关键词追加；补充「截屏 / 点一下 / 划一下 / 按一下 / 装一下 / 存储空间 / 系统版本 / 后台运行」等口语说法
-- 更新弹窗重做：首页最多 4 条本版重点，过滤版本号、哈希、APK 大小和安装说明；详情页去 Markdown 符号，按标题 / 列表 / 代码块排版
-- 1.0.15 的原生 Office、压缩、统一表格预览、Python 组件、会话页重做等能力全部保留
+- **旧附件自动迁移** — 首次启动把旧会话附件搬到对应会话目录，重名追加序号，原文件保留
+- **删除会话即清文件** — 删除弹窗显示目录占用，可勾选「同时删除本会话文件」，默认勾选
+- **会话存储管理** — 设置页新增占用统计与「清理无主会话目录」
+- **口语化工具命中** — 「截屏 / 点一下 / 划一下 / 装一下」也能选对工具组
+- 延续 beta：会话独立目录、流式收尾兜底、36 个核心工具按需下发
 
-### 1.0.15 正式版（vc83）
+详细变更见 [docs/RELEASE_NOTES_v1.0.16.md](docs/RELEASE_NOTES_v1.0.16.md)，完整历史见 [Releases](https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent/releases)。
 
-- 新增原生 Office 工具：`doc_write`、`sheet_write`、`ppt_write`、`sheet_read`
-- 新增压缩工具：`file_zip`、`file_unzip`、`file_zip_list`
-- 新增 Office 三格式内置预览；修复预览页取文件 404
-- 新增「测试性功能 → Python 组件」：内置离线 Python 3.14.10（arm64），首次执行 `python3` 自动准备，不联网下载依赖
-- 表格预览统一：CSV / XLS / XLSX / ODS 使用同一个表格页，支持 UTF-8 / GB18030、多工作表、合并单元格，只渲染实际数据范围
-- DOCX 手机端自适应：窄屏不再按 A4 固定宽度渲染，正文铺满屏幕
-- 会话页重做：页头统计、标题搜索、按今天/昨天/日期分组、当前会话标记、最后一条消息预览
-- 修复设置二级页返回跳顶、文件覆盖页残留、顶栏换主题慢半拍
-- 修复跨对话记忆串扰、xlsx 结构错误、zip 多套一层目录、docx 文本转义
-- 优化 AI 输出与工具使用：步数上限提高、任务清单、收尾策略、提交前体检、自动补卡
-- 新增应用内更新检测与 beta 通道
-- 应用每次启动自动检查更新；已是最新版本时直接提示，不再重复下载
+---
 
 ## 已知限制
 
-- 不做无障碍 UI 自动化，无法逐屏点按第三方 App 界面；跨 App 操作依赖 HTTP、网页抓取、OCR 或 shell 指令
-- 旧附件迁移只扫描 `filesDir/attachments` 与 `cacheDir/attachments`；用户放在其他自定义路径的旧附件不会自动搬进会话目录
-- 删除会话默认勾选「同时删除本会话文件」；取消勾选会保留 `PhoneAgent/<hash>/` 目录，目录从此成为无主目录，可在设置页清理
-- `shell_exec` 仍可通过显式绝对路径访问工作区外，路径约束靠提示词和文件工具沙箱，不是硬沙箱
-- Token 优化按关键词选择工具分组；极少数没有命中关键词的专用工具不会出现在本次请求里，可直接点名工具名或改用 `shell_exec`
-- Office 生成对复杂排版、图表、公式、多工作表联动、母版样式的支持有限，重要文档建议使用办公软件复核
-- 旧版 `.doc` / `.ppt` 的生成仍需要 LibreOffice 等转换器，内置测试组件不解决
-- 统一表格预览以内容和结构为主，不保留复杂单元格底色、特殊字体和图表
-- PDF 暂无内置渲染；音视频使用应用内播放器打开
-- 测试组件目前只有 Python 3.14（arm64），FFmpeg 尚未提供
-- Beta 与正式版共用包名 `com.phoneagent`，无法同时安装；系统仅允许升级到更高 versionCode
+- **不做无障碍自动化**：无法逐屏点按第三方 App 界面，跨应用操作依赖 HTTP、网页抓取、OCR 或 shell。
+- **Office 能力有边界**：复杂排版、图表、公式、母版样式支持有限，重要文档建议再用办公软件复核。
+- **旧格式需转换器**：`.doc` / `.ppt` 的生成仍依赖 LibreOffice 等外部转换。
+- **PDF 暂无内置渲染**，音视频交由应用内播放器。
+- **测试组件仅 arm64**：内置 Python 3.14，FFmpeg 尚未提供。
+- **Beta 与正式版同包名**（`com.phoneagent`），无法共存，只能升级到更高 versionCode。
 
-## 免责声明
+---
 
-本应用以较高权限在设备上执行命令、读写文件，仅限在自有设备上使用，并建议保持「高危确认」或更严格的安全策略。因误操作导致的数据丢失、设备异常等后果由使用者自行承担。
+## 常见问题
 
-## 联系方式
+<details>
+<summary><b>必须 Root 才能用吗？</b></summary>
 
-| 渠道 | 地址 |
+不必。没有 Root 时用 Shizuku 即可获得大部分 shell 能力，差异主要集中在少数需要系统权限的写入操作。
+
+</details>
+
+<details>
+<summary><b>支持哪些模型？</b></summary>
+
+任何兼容 OpenAI Chat Completions 协议的接口都可以，包括 DeepSeek、豆包 / 火山方舟、通义千问、Ollama 本地部署以及自建网关。只需填 Base URL、API Key 与模型名。
+
+</details>
+
+<details>
+<summary><b>对话内容会被上传吗？</b></summary>
+
+只会发送到你配置的模型服务商，项目本身没有中转服务器。会话、记忆、生成的文件全部保存在本机。
+
+</details>
+
+<details>
+<summary><b>为什么有时工具「选不中」？</b></summary>
+
+发给模型的工具清单会按关键词裁剪。若某个工具没被命中，可以在话里直接点名（如「用 screencap 截个图」），点名工具一定会保留。
+
+</details>
+
+<details>
+<summary><b>构建报错提示找不到 SDK？</b></summary>
+
+在项目根目录创建 `local.properties`，写入 `sdk.dir=你的 Android SDK 绝对路径`，再重新执行 `./gradlew assembleDebug`。
+
+</details>
+
+---
+
+## 文档
+
+| 文档 | 内容 |
 |---|---|
-| GitHub Issues | https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent/issues |
-| 邮箱 | 2483807557@qq.com |
-| Telegram | [@Phone_Agent_1](https://t.me/Phone_Agent_1) |
+| [docs/技术方案书.md](docs/技术方案书.md) | 整体设计、模块划分与关键决策 |
+| [docs/tools.json](docs/tools.json) | 工具定义示例与参数结构 |
+| [docs/system_prompt.md](docs/system_prompt.md) | 系统提示词与行为约束 |
+| [docs/command_map.md](docs/command_map.md) | 工具到底层命令的映射 |
+| [docs/RELEASE_NOTES_v1.0.16.md](docs/RELEASE_NOTES_v1.0.16.md) | 当前版本变更说明 |
 
-Bug、建议与使用问题可通过以上任一渠道反馈；附上版本号（设置 → 关于页显示 `v版本号 · vc构建号`）与运行日志中的错误条目，便于定位。
+---
 
-## License
+## 反馈与许可
 
-[MIT](LICENSE) © 2026 PhoneAgent contributors
+Issue、建议与 Bug 反馈：[GitHub Issues](https://github.com/wenweiqi114514wenweiqi-ux/Phone-Agent/issues)（请附版本号与运行日志中的错误条目）。
+
+邮箱：2483807557@qq.com　·　Telegram：[@Phone_Agent_1](https://t.me/Phone_Agent_1)
+
+本项目与其它同名项目无关，代码与实现均为独立完成。
+
+本项目基于 [MIT License](LICENSE) 开源 © 2026 PhoneAgent contributors。
+内置预览使用 [Universal File Preview](https://github.com/dukeofwest/universal-file-preview)（MIT），详见 [NOTICE](NOTICE)。
