@@ -27,6 +27,10 @@ interface ConversationDao {
     @Query("SELECT * FROM conversation WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): ConversationEntity?
 
+    /** 全部会话（含归档），用于会话目录清理与旧附件迁移。 */
+    @Query("SELECT * FROM conversation")
+    suspend fun all(): List<ConversationEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(conversation: ConversationEntity)
 
@@ -41,6 +45,10 @@ interface MessageDao {
 
     @Query("SELECT * FROM message WHERE conversationId = :conversationId ORDER BY createdAt ASC")
     suspend fun allByConversation(conversationId: String): List<MessageEntity>
+
+    /** 带附件的全部消息：用于把旧版 filesDir/attachments 迁移到会话目录。 */
+    @Query("SELECT * FROM message WHERE attachments IS NOT NULL AND attachments != ''")
+    suspend fun allWithAttachments(): List<MessageEntity>
 
     @Query("SELECT COUNT(*) FROM message WHERE conversationId = :conversationId")
     suspend fun countByConversation(conversationId: String): Int

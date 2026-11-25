@@ -16,7 +16,7 @@ class ToolSelectorTest {
         tool("pm_install"), tool("pm_uninstall"), tool("am_start"),
         tool("screencap"), tool("input_tap"), tool("input_text"),
         tool("settings_get"), tool("set_system_setting"),
-        tool("sys_free"), tool("sys_df"), tool("logcat"), tool("reboot"),
+        tool("sys_free"), tool("sys_df"), tool("sys_getprop"), tool("sys_ps"), tool("logcat"), tool("reboot"),
         tool("ping"), tool("dns_lookup"),
         tool("my_custom_tool", builtin = false),
     )
@@ -60,5 +60,22 @@ class ToolSelectorTest {
     fun customToolAlwaysKept() {
         val selected = ToolSelector.select(all, "普通聊天")
         assertEquals(1, selected.count { !it.builtin })
+    }
+
+    @Test
+    fun colloquialKeywordsPullInExpectedGroups() {
+        val screen = ToolSelector.select(all, "帮我截屏，然后点一下那个按钮").map { it.name }.toSet()
+        assertTrue("screencap" in screen)
+        assertTrue("input_tap" in screen)
+
+        val app = ToolSelector.select(all, "把这个包装一下").map { it.name }.toSet()
+        assertTrue("pm_install" in app)
+
+        val system = ToolSelector.select(all, "看看存储空间和系统版本").map { it.name }.toSet()
+        assertTrue("sys_df" in system)
+        assertTrue("sys_getprop" in system)
+
+        val process = ToolSelector.select(all, "看看后台运行了什么").map { it.name }.toSet()
+        assertTrue("sys_ps" in process)
     }
 }

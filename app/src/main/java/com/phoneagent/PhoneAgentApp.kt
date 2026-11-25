@@ -47,6 +47,15 @@ class PhoneAgentApp : Application() {
             // 任何一项启动任务失败都不能带崩进程
             runCatching { container.initDefaults() }
                 .onFailure { logStartupFailure("initDefaults", it) }
+            runCatching {
+                container.migrateLegacyAttachments()?.let { result ->
+                    com.phoneagent.util.AppLog.info(
+                        "storage",
+                        "旧附件迁移：复制 ${result.copiedFiles}，更新 ${result.updatedMessages}，" +
+                            "缺失 ${result.missingFiles}，失败 ${result.failedFiles}",
+                    )
+                }
+            }.onFailure { logStartupFailure("legacyAttachmentMigration", it) }
             runCatching { com.phoneagent.exec.RootShell.redetect() }
                 .onFailure { logStartupFailure("rootRedetect", it) }
             runCatching { container.shizukuManager.retryBind() }

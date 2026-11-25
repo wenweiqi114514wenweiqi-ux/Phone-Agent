@@ -97,21 +97,15 @@ fun ArchivedSessionsPage(container: AppContainer) {
     }
 
     pendingDelete?.let { conv ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("删除会话") },
-            text = { Text("确定永久删除「${conv.title}」？该会话的所有消息一并删除，无法恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        container.database.messageDao().deleteByConversation(conv.id)
-                        container.database.conversationDao().delete(conv)
-                    }
-                    pendingDelete = null
-                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+        DeleteConversationDialog(
+            container = container,
+            conversation = conv,
+            onDismiss = { pendingDelete = null },
+            onDeleted = {
+                pendingDelete = null
+                if (container.settings.lastConversationId == conv.id) {
+                    container.settings.lastConversationId = "default"
+                }
             },
         )
     }

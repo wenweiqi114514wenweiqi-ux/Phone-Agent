@@ -41,6 +41,7 @@ object ToolSelector {
             keywords = listOf(
                 "应用", "安装", "卸载", "清除数据", "禁用", "包名", "apk",
                 "启动", "打开", "停止", "强制停止", "广播",
+                "装一下", "安一下", "装个",
             ),
         ),
         Group(
@@ -51,6 +52,7 @@ object ToolSelector {
             keywords = listOf(
                 "截图", "屏幕", "点击", "滑动", "按键", "输入", "长按",
                 "坐标", "操作手机", "自动化",
+                "截屏", "点一下", "点下", "划一下", "按一下", "手势", "触控",
             ),
         ),
         Group(
@@ -60,6 +62,7 @@ object ToolSelector {
             ),
             keywords = listOf(
                 "系统设置", "设置", "亮度", "旋转", "超时", "屏幕常亮",
+                "系统版本", "版本号",
             ),
         ),
         Group(
@@ -70,12 +73,14 @@ object ToolSelector {
             keywords = listOf(
                 "系统信息", "内存", "磁盘", "存储空间", "进程", "电池",
                 "日志", "属性", "ip", "网络接口", "重启",
+                "存储", "空间", "后台", "运行状态", "系统版本", "版本号",
             ),
         ),
         Group(
             names = setOf("ping", "netstat", "dns_lookup"),
             keywords = listOf(
                 "ping", "端口", "路由", "dns", "域名解析", "网络诊断",
+                "网络", "连接", "域名",
             ),
         ),
     )

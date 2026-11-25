@@ -5,6 +5,7 @@ import com.phoneagent.agent.AgentController
 import com.phoneagent.component.TestComponentManager
 import com.phoneagent.data.AppDatabase
 import com.phoneagent.data.AppearanceRepository
+import com.phoneagent.data.LegacyAttachmentMigrator
 import com.phoneagent.data.ModelRepository
 import com.phoneagent.data.SettingsRepository
 import com.phoneagent.data.UpdateRepository
@@ -71,4 +72,12 @@ class AppContainer(context: Context) {
     suspend fun initDefaults() {
         toolRegistry.ensureDefaults()
     }
+
+    /** 把 1.0.15 及更早版本的 filesDir/attachments 复制到各会话目录。 */
+    suspend fun migrateLegacyAttachments(): LegacyAttachmentMigrator.Result? =
+        LegacyAttachmentMigrator(
+            context = appContext,
+            messageDao = database.messageDao(),
+            workspaceRepository = workspaceRepository,
+        ).migrateIfNeeded()
 }

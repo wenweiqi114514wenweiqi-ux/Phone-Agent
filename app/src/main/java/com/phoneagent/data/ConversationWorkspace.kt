@@ -85,6 +85,65 @@ class ConversationWorkspace(context: Context) {
 
     fun pathFor(conversationId: String): String = dirFor(conversationId).absolutePath
 
+    /** 会话目录占用；不会为了算大小而创建空目录。 */
+    fun sizeOf(conversationId: String): Long =
+        dirSize(File(root(), ConversationWorkspaceNaming.keyFor(conversationId)))
+
+    /** 删除某个会话的整个目录；返回是否真的删掉了内容。 */
+    fun deleteDir(conversationId: String): Boolean {
+        val dir = File(root(), ConversationWorkspaceNaming.keyFor(conversationId))
+        if (!dir.exists()) return false
+        return runCatching { dir.deleteRecursively() }.getOrDefault(false)
+    }
+
+    /** 所有会话目录的总占用（不含根目录下的散落文件）。 */
+    fun totalSize(): Long {
+        val root = root()
+        return root.listFiles()
+            ?.filter { it.isDirectory }
+            ?.sumOf { dirSize(it) }
+            ?: 0L
+    }
+
+    /**
+     * 找出没有对应会话记录的目录。目录名是会话 ID 的哈希，不能反推，
+     * 所以调用方必须传入仍然存在的会话 ID 列表。
+     */
+    fun orphanDirs(knownConversationIds: Collection<String>): List<File> {
+        val root = root()
+        val knownKeys = knownConversationIds.mapTo(HashSet()) { ConversationWorkspaceNaming.keyFor(it) }
+        return root.listFiles()
+            ?.filter { it.isDirectory && it.name !in knownKeys }
+            ?.sortedBy { it.lastModified() }
+            ?: emptyList()
+    }
+
+    /** 清理无主目录；返回 (目录数, 释放字节数)。 */
+    fun deleteOrphans(knownConversationIds: Collection<String>): Pair<Int, Long> {
+        var count = 0
+        var bytes = 0L
+        orphanDirs(knownConversationIds).forEach { dir ->
+            val size = dirSize(dir)
+            if (runCatching { dir.deleteRecursively() }.getOrDefault(false)) {
+                count++
+                bytes += size
+            }
+        }
+        return count to bytes
+    }
+
+    fun rootPath(): String = root().absolutePath
+
+    private fun dirSize(dir: File): Long {
+        if (!dir.exists()) return 0L
+        if (dir.isFile) return dir.length()
+        return runCatching {
+            dir.walkTopDown()
+                .filter { it.isFile }
+                .sumOf { it.length() }
+        }.getOrDefault(0L)
+    }
+
     fun workspaceFor(conversationId: String): WorkspaceRepository.Workspace =
         WorkspaceRepository.Workspace(
             name = "本会话目录",

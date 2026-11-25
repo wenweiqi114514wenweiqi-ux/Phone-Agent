@@ -253,26 +253,17 @@ fun SessionsScreen(
     }
 
     pendingDelete?.let { conv ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("删除会话") },
-            text = { Text("确定删除「${conv.title}」？该会话的所有消息将一并删除，无法恢复。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        container.database.messageDao().deleteByConversation(conv.id)
-                        container.database.conversationDao().delete(conv)
-                        if (container.settings.lastConversationId == conv.id) {
-                            container.settings.lastConversationId = "default"
-                            onSelect("default")
-                        }
-                    }
-                    pendingDelete = null
-                }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+        DeleteConversationDialog(
+            container = container,
+            conversation = conv,
+            onDismiss = { pendingDelete = null },
+            onDeleted = {
+                pendingDelete = null
+                if (container.settings.lastConversationId == conv.id) {
+                    container.settings.lastConversationId = "default"
+                    onSelect("default")
                 }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
         )
     }
 }

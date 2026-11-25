@@ -26,6 +26,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import com.phoneagent.di.AppContainer
 import com.phoneagent.exec.RootShell
 import com.phoneagent.exec.ShizukuStatus
 import com.phoneagent.tools.SafetyMode
+import com.phoneagent.ui.preview.formatSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -270,11 +272,22 @@ fun SafetySettingsPage(container: AppContainer) {
 @Composable
 fun FeatureSettingsPage(container: AppContainer) {
     val settings = container.settings
+    val scope = rememberCoroutineScope()
     var showReasoning by remember { mutableStateOf(settings.showReasoning) }
     var logEnabled by remember { mutableStateOf(settings.logEnabled) }
     var autoRetry by remember { mutableStateOf(settings.autoRetry) }
     var deepThinking by remember { mutableStateOf(settings.deepThinking) }
     var level by remember { mutableStateOf(settings.thinkingLevel) }
+    var storageSize by remember { mutableStateOf<Long?>(null) }
+    var storageResult by remember { mutableStateOf<String?>(null) }
+    var storageBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        storageSize = withContext(Dispatchers.IO) {
+            runCatching { container.workspaceRepository.totalConversationSize() }
+                .getOrDefault(0L)
+        }
+    }
 
     PageColumn {
         CardTitle("显示")
@@ -288,6 +301,56 @@ fun FeatureSettingsPage(container: AppContainer) {
                 logEnabled = it
                 settings.logEnabled = it
             }
+        }
+
+        CardTitle("会话文件")
+        SettingsCard {
+            InfoRow("会话目录占用", storageSize?.let(::formatSize) ?: "计算中…")
+            HorizontalDivider()
+            ListItem(
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                headlineContent = { Text("清理无主会话目录") },
+                supportingContent = {
+                    Text(
+                        storageResult ?: "删除已删除会话残留的文件，不影响当前会话",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    if (storageBusy) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    } else {
+                        TextButton(
+                            onClick = {
+                                storageBusy = true
+                                storageResult = null
+                                scope.launch {
+                                    try {
+                                        val result = withContext(Dispatchers.IO) {
+                                            val known = container.database.conversationDao()
+                                                .all().map { it.id }.toSet() + "default"
+                                            container.workspaceRepository
+                                                .cleanupOrphanConversationDirs(known)
+                                        }
+                                        storageSize = withContext(Dispatchers.IO) {
+                                            container.workspaceRepository.totalConversationSize()
+                                        }
+                                        storageResult = if (result.first == 0) {
+                                            "没有需要清理的目录"
+                                        } else {
+                                            "已清理 ${result.first} 个目录，释放 ${formatSize(result.second)}"
+                                        }
+                                    } catch (e: Exception) {
+                                        storageResult = "清理失败：${e.message ?: e.javaClass.simpleName}"
+                                    } finally {
+                                        storageBusy = false
+                                    }
+                                }
+                            },
+                        ) { Text("清理") }
+                    }
+                },
+            )
         }
 
         CardTitle("执行")

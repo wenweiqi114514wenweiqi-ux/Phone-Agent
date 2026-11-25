@@ -106,6 +106,24 @@ class WorkspaceRepository(context: Context) {
     fun conversationWorkspace(conversationId: String): Workspace =
         conversationWorkspaces.workspaceFor(conversationId)
 
+    /** 当前会话目录占用；不会额外创建目录。 */
+    fun conversationSize(conversationId: String): Long =
+        conversationWorkspaces.sizeOf(conversationId)
+
+    /** 删除当前会话目录（附件、产物、临时文件）。 */
+    fun deleteConversationFiles(conversationId: String): Boolean =
+        conversationWorkspaces.deleteDir(conversationId)
+
+    /** 所有会话目录总占用。 */
+    fun totalConversationSize(): Long = conversationWorkspaces.totalSize()
+
+    /** 会话目录根路径。 */
+    fun conversationRootPath(): String = conversationWorkspaces.rootPath()
+
+    /** 清理没有对应会话记录的目录；返回 (目录数, 释放字节数)。 */
+    fun cleanupOrphanConversationDirs(knownConversationIds: Collection<String>): Pair<Int, Long> =
+        conversationWorkspaces.deleteOrphans(knownConversationIds)
+
     /** 会话当前绑定的工作区（null = 未绑定命名工作区）。 */
     fun boundWorkspace(conversationId: String): Workspace? {
         val name = prefs.getString(KEY_BIND_PREFIX + conversationId, null) ?: return null
